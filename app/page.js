@@ -20,7 +20,7 @@ export default function HomePage() {
           </p>
           <div className="hero-actions">
             <Link href="/register" className="btn btn-primary btn-lg">
-              Mulai Sekarang →
+              Mulai Sekarang
             </Link>
             <Link href="/login" className="btn btn-ghost btn-lg">
               Sudah Punya Akun
@@ -92,7 +92,7 @@ export default function HomePage() {
               Daftar gratis, deposit saldo, dan langsung order OTP dalam 2 menit.
             </p>
             <Link href="/register" className="btn btn-primary btn-lg">
-              Daftar Sekarang — Gratis
+              Daftar Sekarang - Gratis
             </Link>
           </div>
         </section>
