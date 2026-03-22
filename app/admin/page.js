@@ -23,13 +23,13 @@ export default function AdminPage() {
     const parsed = JSON.parse(s);
     if (parsed.profile?.role !== 'admin') { router.push('/dashboard'); return; }
     setSession(parsed);
-    loadData();
+    loadData(parsed.access_token);
   }, []);
 
-  const loadData = async () => {
+  const loadData = async (token) => {
     setLoading(true);
     try {
-      const headers = { Authorization: `Bearer ${session.access_token}` };
+      const headers = { Authorization: `Bearer ${token}` };
       const [balRes, usersRes] = await Promise.all([
         fetch('/api/admin/balance', { headers }),
         fetch('/api/admin/users', { headers }),
@@ -60,7 +60,7 @@ export default function AdminPage() {
         setTopupModal(null);
         setTopupAmount('');
         setTopupNote('');
-        loadData();
+        if (session) loadData(session.access_token);
       } else {
         setMsg({ type:'error', text: data.error });
       }
