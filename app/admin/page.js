@@ -64,7 +64,14 @@ export default function AdminPage() {
     setTopupLoading(false);
   };
 
-  if (!session) return null;
+  if (!session) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', flexDirection: 'column', gap: 16 }}>
+        <div className="spinner" style={{ width: 36, height: 36, borderWidth: 4 }}></div>
+        <div style={{ color: 'var(--text-3)', fontSize: '0.9rem', fontWeight: 500 }}>Memuat Admin Panel...</div>
+      </div>
+    );
+  }
 
   return (
     <>
