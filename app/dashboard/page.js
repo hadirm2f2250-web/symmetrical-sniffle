@@ -11,19 +11,19 @@ function FAQAccordion({ question, children }) {
   const [open, setOpen] = useState(false);
   return (
     <div style={{ borderBottom: '1px solid var(--border)', padding: '16px 0' }}>
-      <div 
+      <div
         onClick={() => setOpen(!open)}
-        style={{ 
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+        style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           cursor: 'pointer', fontWeight: 600, color: open ? 'var(--accent)' : 'var(--text-1)', fontSize: '0.95rem',
           transition: 'color 0.2s'
         }}
       >
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <span style={{ 
+          <span style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            width: 24, height: 24, borderRadius: '50%', 
-            background: open ? 'var(--accent)' : 'var(--bg-3)', 
+            width: 24, height: 24, borderRadius: '50%',
+            background: open ? 'var(--accent)' : 'var(--bg-3)',
             color: open ? '#000' : 'var(--text-3)',
             fontSize: '0.8rem', fontWeight: 800, transition: 'all 0.2s'
           }}>?</span>
@@ -60,7 +60,7 @@ export default function DashboardPage() {
       });
       const data = await res.json();
       if (data.success) setOrders(data.data.slice(0, 10)); // Grab more to find active ones
-    } catch {}
+    } catch { }
     setLoading(false);
   };
 
@@ -84,7 +84,7 @@ export default function DashboardPage() {
   };
 
 
-  const activeOrders = orders.filter(o => ['waiting','received','expiring'].includes(o.status));
+  const activeOrders = orders.filter(o => ['waiting', 'received', 'expiring'].includes(o.status));
 
   if (!ready) {
     return (
@@ -113,11 +113,11 @@ export default function DashboardPage() {
             <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '24px 28px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                 <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                  <div style={{ 
+                  <div style={{
                     width: 48, height: 48, background: 'rgba(0,212,170,0.1)', border: '1px solid rgba(0,212,170,0.2)',
                     borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)'
                   }}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 12h.01"/><path d="M17 12h.01"/><path d="M7 12h.01"/></svg>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M12 12h.01" /><path d="M17 12h.01" /><path d="M7 12h.01" /></svg>
                   </div>
                   <div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-2)', marginBottom: 2 }}>Saldo Kamu</div>
@@ -139,8 +139,8 @@ export default function DashboardPage() {
             </div>
 
             {/* Promo Banner */}
-            <div style={{ 
-              background: 'linear-gradient(135deg, var(--bg-card) 0%, var(--bg-2) 100%)', 
+            <div style={{
+              background: 'linear-gradient(135deg, var(--bg-card) 0%, var(--bg-2) 100%)',
               border: '1px solid var(--border)',
               borderRadius: 'var(--radius)', padding: '24px 30px',
               display: 'flex', flexDirection: 'column', justifyContent: 'center',
@@ -149,7 +149,7 @@ export default function DashboardPage() {
               <h2 style={{ color: 'var(--text-1)', fontSize: '1.3rem', marginBottom: 6, fontWeight: 700 }}>Beli Nomor OTP</h2>
               <p style={{ color: 'var(--text-2)', fontSize: '0.9rem', marginBottom: 20 }}>Akses OTP instan untuk berbagai layanan.</p>
               <Link href="/order" className="btn btn-primary" style={{ alignSelf: 'flex-start' }}>
-                Order Sekarang <span style={{ transition: 'transform 0.2s', marginLeft: 4 }}>→</span>
+                Order Sekarang <span style={{ transition: 'transform 0.2s', marginLeft: 4 }}></span>
               </Link>
             </div>
           </div>
@@ -159,13 +159,13 @@ export default function DashboardPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div className="card-title" style={{ fontSize: '1.1rem' }}>Pesanan Aktif</div>
               <button className="btn btn-ghost btn-sm" onClick={handleRefresh} disabled={refreshing} style={{ padding: '6px 12px' }}>
-                {refreshing ? <span className="spinner" style={{width:14,height:14}}></span> : 'Refresh'}
+                {refreshing ? <span className="spinner" style={{ width: 14, height: 14 }}></span> : 'Refresh'}
               </button>
             </div>
             {loading ? (
               <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-3)' }}><span className="spinner"></span></div>
             ) : activeOrders.length === 0 ? (
-              <div style={{ textAlign:'center', padding:'40px 0', color:'var(--text-3)', fontSize: '0.9rem', background: 'var(--bg-2)', borderRadius: 'var(--radius-sm)' }}>
+              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-3)', fontSize: '0.9rem', background: 'var(--bg-2)', borderRadius: 'var(--radius-sm)' }}>
                 Tidak ada pesanan aktif saat ini.
               </div>
             ) : (
@@ -239,34 +239,34 @@ export default function DashboardPage() {
 
             {/* Recent Orders (Completed) */}
             <div className="card">
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                 <div className="card-title" style={{ fontSize: '1.1rem' }}>Riwayat Terakhir</div>
                 <Link href="/history" className="btn btn-ghost btn-sm" style={{ padding: '6px 12px' }}>Lihat Semua</Link>
               </div>
               {loading ? (
                 <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-3)' }}><span className="spinner"></span></div>
-              ) : orders.filter(o => !['waiting','expiring'].includes(o.status)).length === 0 ? (
-                <div style={{ textAlign:'center', padding:'40px 0', color:'var(--text-3)', fontSize: '0.9rem', background: 'var(--bg-2)', borderRadius: 'var(--radius-sm)' }}>
+              ) : orders.filter(o => !['waiting', 'expiring'].includes(o.status)).length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-3)', fontSize: '0.9rem', background: 'var(--bg-2)', borderRadius: 'var(--radius-sm)' }}>
                   Belum ada riwayat order.
                 </div>
               ) : (
                 <div className="table-wrap">
-                <table className="responsive">
-                  <thead>
-                    <tr>
-                      <th>Layanan</th><th>Nomor</th><th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orders.filter(o => !['waiting','expiring'].includes(o.status)).slice(0, 5).map(o => (
-                      <tr key={o.id}>
-                        <td data-label="Layanan"><strong>{o.service}</strong></td>
-                        <td data-label="Nomor" className="mono-cell">{o.phone_number || '-'}</td>
-                        <td data-label="Status">{statusBadge(o.status)}</td>
+                  <table className="responsive">
+                    <thead>
+                      <tr>
+                        <th>Layanan</th><th>Nomor</th><th>Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {orders.filter(o => !['waiting', 'expiring'].includes(o.status)).slice(0, 5).map(o => (
+                        <tr key={o.id}>
+                          <td data-label="Layanan"><strong>{o.service}</strong></td>
+                          <td data-label="Nomor" className="mono-cell">{o.phone_number || '-'}</td>
+                          <td data-label="Status">{statusBadge(o.status)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>

@@ -51,15 +51,7 @@ export default function DepositPage() {
     window.open(`https://wa.me/${WA_KIRIM}?text=${encodeURIComponent(text)}`, '_blank');
   };
 
-  if (!ready) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', flexDirection: 'column', gap: 16 }}>
-        <div className="spinner" style={{ width: 36, height: 36, borderWidth: 4 }}></div>
-        <div style={{ color: 'var(--text-3)', fontSize: '0.9rem', fontWeight: 500 }}>Memuat Workspace...</div>
-      </div>
-    );
-  }
-  if (!session) return null;
+  if (!ready || !session) return null;
 
   return (
     <>
@@ -124,7 +116,7 @@ export default function DepositPage() {
                   </div>
                   
                   <div className="alert alert-info" style={{ marginTop: 20, fontSize: '0.85rem', textAlign: 'center' }}>
-                    YogaxD Store - Sidoarjo (QRIS Dinamis)
+                    YogaxD Store
                   </div>
                   
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', marginTop: 16 }}>
