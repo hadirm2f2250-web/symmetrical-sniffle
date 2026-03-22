@@ -44,8 +44,11 @@ export async function POST(request) {
     const orderData = await createOrder(number_id, provider_id, operator_id);
     console.log('[RumahOTP createOrder response]', JSON.stringify(orderData));
     if (!orderData.success) {
-      const errMsg = orderData.message || orderData.error || JSON.stringify(orderData);
-      return NextResponse.json({ error: `RumahOTP: ${errMsg}` }, { status: 500 });
+      let errMsg = orderData.message || orderData.error || 'Terjadi kesalahan pada sistem provider.';
+      if (typeof errMsg === 'object') {
+        errMsg = 'Gangguan pada server provider, silakan coba beberapa saat lagi.';
+      }
+      return NextResponse.json({ error: errMsg }, { status: 500 });
     }
 
     const order = orderData.data;

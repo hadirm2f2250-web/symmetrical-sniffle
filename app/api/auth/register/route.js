@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getServiceSupabase } from '@/lib/supabase';
 
 export async function POST(request) {
   try {
@@ -17,6 +18,17 @@ export async function POST(request) {
       process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
     );
+
+    const supabaseAdmin = getServiceSupabase();
+    const { data: existingUser } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .ilike('username', username)
+      .maybeSingle();
+
+    if (existingUser) {
+      return NextResponse.json({ error: 'Username sudah terpakai' }, { status: 400 });
+    }
 
     const { data, error } = await supabase.auth.signUp({
       email,
