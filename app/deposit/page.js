@@ -46,8 +46,8 @@ export default function DepositPage() {
   };
   
   const handleConfirmWA = () => {
-    const userEmail = session?.user?.email || 'Tidak diketahui';
-    const text = `Halo Admin, saya ingin konfirmasi deposit.\n\n*Detail Deposit:*\n- Deposit ID: *${depositId}*\n- Email: *${userEmail}*\n- Nominal: *Rp${Number(amount).toLocaleString('id-ID')}*\n\nSaya telah mentransfer dana via QRIS DuniaNokos. Mohon segera dicek dan ditambahkan ke saldo saya. Terima kasih.`;
+    const username = profile?.username || 'Tidak diketahui';
+    const text = `Halo Admin, saya ingin konfirmasi deposit.\n\n*Detail Deposit:*\n- Deposit ID: *${depositId}*\n- Username: *${username}*\n- Nominal: *Rp${Number(amount).toLocaleString('id-ID')}*\n\nSaya telah mentransfer dana via QRIS DuniaNokos. Mohon segera dicek dan ditambahkan ke saldo saya. Terima kasih.`;
     window.open(`https://wa.me/${WA_KIRIM}?text=${encodeURIComponent(text)}`, '_blank');
   };
 

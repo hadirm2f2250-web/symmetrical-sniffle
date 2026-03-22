@@ -115,7 +115,7 @@ export default function AdminPage() {
                 type="text" 
                 className="form-input" 
                 style={{ width: '100%', maxWidth: 300 }} 
-                placeholder="Cari email atau username..." 
+                placeholder="Cari username..." 
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
               />
@@ -132,13 +132,11 @@ export default function AdminPage() {
                   </thead>
                   <tbody>
                     {users.filter(u => 
-                      u.email?.toLowerCase().includes(searchQuery.toLowerCase()) || 
                       u.username?.toLowerCase().includes(searchQuery.toLowerCase())
                     ).map(u => (
                       <tr key={u.id}>
                         <td>
                           <strong>{u.username}</strong>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>{u.email}</div>
                         </td>
                         <td>
                           <span className={`badge ${u.role === 'admin' ? 'badge-info' : 'badge-waiting'}`}>
