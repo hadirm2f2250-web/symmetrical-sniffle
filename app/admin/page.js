@@ -29,9 +29,10 @@ export default function AdminPage() {
   const loadData = async () => {
     setLoading(true);
     try {
+      const headers = { Authorization: `Bearer ${session.access_token}` };
       const [balRes, usersRes] = await Promise.all([
-        fetch('/api/admin/balance'),
-        fetch('/api/admin/users'),
+        fetch('/api/admin/balance', { headers }),
+        fetch('/api/admin/users', { headers }),
       ]);
       const balData = await balRes.json();
       const usersData = await usersRes.json();
@@ -47,7 +48,10 @@ export default function AdminPage() {
     try {
       const res = await fetch('/api/admin/topup', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}` 
+        },
         body: JSON.stringify({ user_id: topupModal.user_id, amount: parseInt(topupAmount), note: topupNote }),
       });
       const data = await res.json();
