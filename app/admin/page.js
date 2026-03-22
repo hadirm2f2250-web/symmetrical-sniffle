@@ -132,7 +132,7 @@ export default function AdminPage() {
                   </thead>
                   <tbody>
                     {users.filter(u => 
-                      u.username?.toLowerCase().includes(searchQuery.toLowerCase())
+                      (u.username || '').toLowerCase().includes((searchQuery || '').toLowerCase())
                     ).map(u => (
                       <tr key={u.id}>
                         <td>
