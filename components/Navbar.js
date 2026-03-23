@@ -7,6 +7,7 @@ export default function Navbar({ user, profile }) {
 
   const handleLogout = () => {
     localStorage.removeItem('dn_session');
+    sessionStorage.removeItem('dn_session');
     router.push('/login');
   };
 

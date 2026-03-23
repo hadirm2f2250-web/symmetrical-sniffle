@@ -7,6 +7,7 @@ import Navbar from '@/components/Navbar';
 export default function LoginPage() {
   const router = useRouter();
   const [form, setForm] = useState({ email: '', password: '' });
+  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -21,12 +22,23 @@ export default function LoginPage() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Login gagal'); return; }
-      localStorage.setItem('dn_session', JSON.stringify({
+
+      const sessionData = JSON.stringify({
         access_token: data.session.access_token,
         user_id: data.user.id,
         email: data.user.email,
         profile: data.user.profile,
-      }));
+      });
+
+      // "Ingat Saya" → localStorage (persisten); tidak dicentang → sessionStorage (hilang saat tab ditutup)
+      if (rememberMe) {
+        localStorage.setItem('dn_session', sessionData);
+        sessionStorage.removeItem('dn_session');
+      } else {
+        sessionStorage.setItem('dn_session', sessionData);
+        localStorage.removeItem('dn_session');
+      }
+
       if (data.user.profile?.role === 'admin') {
         router.push('/admin');
       } else {
@@ -59,6 +71,18 @@ export default function LoginPage() {
               <label className="form-label">Password</label>
               <input className="form-input" type="password" placeholder="••••••••"
                 value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0 12px' }}>
+              <input
+                type="checkbox"
+                id="rememberMe"
+                checked={rememberMe}
+                onChange={e => setRememberMe(e.target.checked)}
+                style={{ width: 16, height: 16, accentColor: 'var(--primary)', cursor: 'pointer' }}
+              />
+              <label htmlFor="rememberMe" style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', cursor: 'pointer', userSelect: 'none' }}>
+                Ingat saya
+              </label>
             </div>
             <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
               {loading ? <><span className="spinner" style={{width:16,height:16}}></span> Masuk...</> : 'Masuk'}
