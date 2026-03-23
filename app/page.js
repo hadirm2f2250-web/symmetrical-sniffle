@@ -1,8 +1,28 @@
 'use client';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 
 export default function HomePage() {
+  const router = useRouter();
+  const [loggedIn, setLoggedIn] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('dn_session') || sessionStorage.getItem('dn_session');
+      if (raw) {
+        const sess = JSON.parse(raw);
+        if (sess?.access_token) {
+          setLoggedIn(true);
+          // Redirect otomatis ke dashboard/admin
+          const role = sess?.profile?.role;
+          router.replace(role === 'admin' ? '/admin' : '/dashboard');
+        }
+      }
+    } catch {}
+  }, []);
+
   return (
     <>
       <Navbar />
