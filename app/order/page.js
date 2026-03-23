@@ -262,9 +262,21 @@ export default function OrderPage() {
     setSelectedOperator(op || null);
   };
 
+  // Cek apakah sedang jam maintenance (23:00 - 00:10 WIB = UTC+7 → 16:00-17:10 UTC)
+  const isMaintenance = () => {
+    const now = new Date();
+    const wib = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+    const h = wib.getHours(), m = wib.getMinutes();
+    return (h === 23) || (h === 0 && m <= 10);
+  };
+
   const handleOrder = async () => {
     if (!selectedService || !selectedCountry || !selectedProvider || !selectedOperator) {
       setError('Lengkapi semua pilihan terlebih dahulu'); return;
+    }
+    if (isMaintenance()) {
+      setError('Sedang maintenance harian (23:00–00:10 WIB). Coba lagi setelah pukul 00:10 WIB.');
+      return;
     }
     setOrdering(true); setError('');
     try {
@@ -282,13 +294,25 @@ export default function OrderPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.error); return; }
+      if (!res.ok) {
+        // Deteksi error stok habis
+        const errMsg = (data.error || '').toLowerCase();
+        if (errMsg.includes('stock') || errMsg.includes('stok') || errMsg.includes('no numbers') || errMsg.includes('out of stock') || errMsg.includes('not available')) {
+          setError('Stok nomor habis untuk operator ini. Coba pilih operator atau negara lain.');
+        } else {
+          setError(data.error || 'Gagal membuat order');
+        }
+        return;
+      }
 
       showToast('🎉 Pembelian nomor berhasil!');
       await loadActiveOrders();
       await refreshProfile();
-    } catch (e) { setError('Gagal membuat order: ' + e.message); }
-    setOrdering(false);
+    } catch (e) {
+      setError('Gagal membuat order: ' + e.message);
+    } finally {
+      setOrdering(false);
+    }
   };
 
   const handleAction = async (orderId, action) => {
@@ -359,6 +383,18 @@ export default function OrderPage() {
             {/* ── Left: Order Form ── */}
             <div className="card">
               <div className="card-title" style={{ marginBottom: 20 }}>🛒 Form Order</div>
+
+              {/* Info notices */}
+              <div style={{
+                background: 'var(--bg-2)', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-sm)', padding: '12px 14px',
+                marginBottom: 16, fontSize: '0.78rem', color: 'var(--text-2)', lineHeight: 1.7,
+                display: 'flex', flexDirection: 'column', gap: 4,
+              }}>
+                <div>🕐 <strong>Maintenance harian 23:00–00:10 WIB</strong> — transaksi pada jam tersebut akan <strong>GAGAL</strong>.</div>
+                <div>⚡ <strong>Batas kecepatan:</strong> maks. 5 permintaan per 10 detik. Spam → IP diblokir sementara oleh Cloudflare.</div>
+                <div>⚠ Jika muncul error "Gangguan server provider", artinya <strong>stok habis</strong> — coba operator/negara lain.</div>
+              </div>
 
               {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>⚠ {error}</div>}
 
