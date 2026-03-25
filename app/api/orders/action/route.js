@@ -67,12 +67,15 @@ export async function POST(request) {
         return NextResponse.json({ success: false, error: 'Pesanan sudah dibatalkan atau sedang diproses.' }, { status: 400 });
       }
 
-      const { data: profile } = await supabase
-        .from('profiles').select('balance').eq('id', user.id).single();
-
-      // Refund balance
-      await supabase.from('profiles')
-        .update({ balance: profile.balance + order.price }).eq('id', user.id);
+      // Atomic refund: increment balance directly to avoid race condition
+      const { error: rpcErr } = await supabase.rpc('increment_balance', { uid: user.id, amt: order.price });
+      if (rpcErr) {
+        // Fallback if RPC doesn't exist: read + write (less safe but functional)
+        const { data: profile } = await supabase
+          .from('profiles').select('balance').eq('id', user.id).single();
+        await supabase.from('profiles')
+          .update({ balance: (profile?.balance || 0) + order.price }).eq('id', user.id);
+      }
 
       await supabase.from('transactions').insert({
         user_id: user.id,

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
+import { getAuthUser } from '@/lib/auth';
 import { getOrderStatus } from '@/lib/otpProvider';
 
 export async function GET(request) {
@@ -12,10 +13,21 @@ export async function GET(request) {
   }
 
   try {
+    // Auth check — prevent unauthenticated access to order status
+    const { user } = await getAuthUser(request).catch(() => { throw new Error('UNAUTHORIZED'); });
+
+    const supabase = getServiceSupabase();
+
+    // Verify the order belongs to this user
+    const { data: orderRow } = await supabase
+      .from('orders').select('user_id').eq('order_id', order_id).single();
+    if (!orderRow || orderRow.user_id !== user.id) {
+      return NextResponse.json({ error: 'Order tidak ditemukan' }, { status: 404 });
+    }
+
     const data = await getOrderStatus(order_id, server);
 
     if (data.success) {
-      const supabase = getServiceSupabase();
       const updatePayload = { status: data.data.status };
 
       // Hanya simpan otp_code kalau benar-benar OTP (bukan placeholder)
@@ -33,6 +45,8 @@ export async function GET(request) {
 
     return NextResponse.json(data);
   } catch (err) {
+    if (err.message === 'UNAUTHORIZED') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
+

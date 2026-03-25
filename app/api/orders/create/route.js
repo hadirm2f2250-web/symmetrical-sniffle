@@ -54,10 +54,8 @@ export async function POST(request) {
     const order = orderData.data;
     const expiresAt = new Date(Date.now() + order.expires_in_minute * 60 * 1000).toISOString();
 
-    // Deduct balance
-    await supabase.from('profiles').update({ balance: profile.balance - price }).eq('id', user.id);
-
-    const { data: dbOrder } = await supabase.from('orders').insert({
+    // Insert order FIRST — only deduct balance if insert succeeds
+    const { data: dbOrder, error: insertErr } = await supabase.from('orders').insert({
       user_id: user.id,
       order_id: order.order_id,
       service: service_name || layanan,
@@ -68,6 +66,19 @@ export async function POST(request) {
       price,
       expires_at: expiresAt,
     }).select().single();
+
+    if (insertErr) {
+      console.error('[orders/create] insert failed:', insertErr.message);
+      return NextResponse.json({ error: 'Gagal menyimpan order. Saldo tidak dipotong.' }, { status: 500 });
+    }
+
+    // Deduct balance AFTER order insert confirmed
+    await supabase.rpc('decrement_balance', { uid: user.id, amt: price }).then(({ error: rpcErr }) => {
+      // Fallback to normal update if RPC doesn't exist
+      if (rpcErr) {
+        return supabase.from('profiles').update({ balance: profile.balance - price }).eq('id', user.id);
+      }
+    });
 
     await supabase.from('transactions').insert({
       user_id: user.id,

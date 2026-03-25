@@ -163,6 +163,7 @@ export default function OrderPage() {
   // Active orders state
   const [activeOrders, setActiveOrders] = useState([]);
   const [actionLoading, setActionLoading] = useState(null);
+  const cancellingRef = useRef(new Set()); // Guard for multi-order auto-cancel
   const [now, setNow] = useState(Date.now());
 
   const token = session?.access_token;
@@ -185,8 +186,10 @@ export default function OrderPage() {
   };
 
   // ── Auto-poll active orders every 5s ──────────────────────────────
+  // Only poll when there are waiting/expiring orders (not just received ones)
   useEffect(() => {
-    if (activeOrders.length === 0) return;
+    const hasPending = activeOrders.some(o => ['waiting', 'expiring'].includes(o.status));
+    if (!hasPending) return;
     const interval = setInterval(loadActiveOrders, 5000);
     return () => clearInterval(interval);
   }, [activeOrders]);
@@ -200,8 +203,12 @@ export default function OrderPage() {
       activeOrders.forEach(order => {
         if (['waiting', 'expiring'].includes(order.status)) {
           const remainingMs = order.expires_at ? new Date(order.expires_at) - currentTime : 0;
-          if (remainingMs <= 0 && actionLoading !== order.order_id) {
-            handleAction(order.order_id, 'cancel');
+          // Use Set guard so multiple expired orders don't conflict
+          if (remainingMs <= 0 && !cancellingRef.current.has(order.order_id)) {
+            cancellingRef.current.add(order.order_id);
+            handleAction(order.order_id, 'cancel').finally(() => {
+              cancellingRef.current.delete(order.order_id);
+            });
           }
         }
       });
@@ -223,7 +230,7 @@ export default function OrderPage() {
         const updatedOrders = await Promise.all(recentOrders.map(async (o) => {
           if (['waiting', 'expiring'].includes(o.status)) {
             try {
-              const statRes = await fetch(`/api/orders/status?order_id=${o.order_id}&server=${selectedServer}`);
+              const statRes = await fetch(`/api/orders/status?order_id=${o.order_id}&server=${selectedServer}`, { headers: authHeaders });
               const statJson = await statRes.json();
               if (statJson.success && statJson.data) {
                 return { ...o, ...statJson.data };
@@ -351,6 +358,7 @@ export default function OrderPage() {
   };
 
   const handleAction = async (orderId, action) => {
+    if (action === 'cancel' && cancellingRef.current.has(orderId)) return; // already cancelling
     setActionLoading(orderId);
     try {
       const res = await fetch('/api/orders/action', {
