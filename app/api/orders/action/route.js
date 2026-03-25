@@ -51,6 +51,22 @@ export async function POST(request) {
        data.message.toLowerCase().includes('tidak ditemukan'));
 
     if (data.success || isAlreadyCanceled) {
+
+      // ATOMIC UPDATE: Only update if the order is still waiting/expiring.
+      // If a concurrent request already cancelled it, this will safely return no rows.
+      const { data: updatedOrder, error: updateErr } = await supabase
+        .from('orders')
+        .update({ status: 'canceled' })
+        .eq('order_id', order_id)
+        .in('status', ['waiting', 'expiring'])
+        .select()
+        .maybeSingle();
+
+      if (updateErr || !updatedOrder) {
+        // Handled concurrently by another request
+        return NextResponse.json({ success: false, error: 'Pesanan sudah dibatalkan atau sedang diproses.' }, { status: 400 });
+      }
+
       const { data: profile } = await supabase
         .from('profiles').select('balance').eq('id', user.id).single();
 
@@ -65,8 +81,6 @@ export async function POST(request) {
         status: 'success',
         metadata: { order_id, reason: 'cancelled or timeout', server: selectedServer },
       });
-
-      await supabase.from('orders').update({ status: 'canceled' }).eq('order_id', order_id);
 
       return NextResponse.json({ success: true, message: 'Pesanan berhasil dibatalkan dan saldo dikembalikan.' });
     }
