@@ -163,6 +163,7 @@ export default function OrderPage() {
   // Active orders state
   const [activeOrders, setActiveOrders] = useState([]);
   const [actionLoading, setActionLoading] = useState(null);
+  const [now, setNow] = useState(Date.now());
 
   const token = session?.access_token;
   const authHeaders = { Authorization: `Bearer ${token}` };
@@ -189,6 +190,24 @@ export default function OrderPage() {
     const interval = setInterval(loadActiveOrders, 5000);
     return () => clearInterval(interval);
   }, [activeOrders]);
+
+  // ── Auto-update exact time & Auto-cancel expired orders ───────────
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const currentTime = Date.now();
+      setNow(currentTime);
+
+      activeOrders.forEach(order => {
+        if (['waiting', 'expiring'].includes(order.status)) {
+          const remainingMs = order.expires_at ? new Date(order.expires_at) - currentTime : 0;
+          if (remainingMs <= 0 && actionLoading !== order.order_id) {
+            handleAction(order.order_id, 'cancel');
+          }
+        }
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [activeOrders, actionLoading]);
 
   const loadActiveOrders = async () => {
     try {
@@ -538,7 +557,7 @@ export default function OrderPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               {activeOrders.length > 0 ? (
                 activeOrders.map(order => {
-                  const remainingMs = order.expires_at ? new Date(order.expires_at) - Date.now() : 0;
+                  const remainingMs = order.expires_at ? new Date(order.expires_at) - now : 0;
                   const mins = Math.max(0, Math.floor(remainingMs / 60000));
                   const secs = Math.max(0, Math.floor((remainingMs % 60000) / 1000));
 
