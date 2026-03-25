@@ -3,10 +3,11 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import Sidebar from '@/components/Sidebar';
+import { useProfile } from '@/lib/useProfile';
 
 export default function AdminPage() {
   const router = useRouter();
-  const [session, setSession] = useState(null);
+  const { session, profile, ready } = useProfile();
   const [providerBalance, setProviderBalance] = useState(null);
   const [users, setUsers] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -18,13 +19,11 @@ export default function AdminPage() {
   const [msg, setMsg] = useState({ type: '', text: '' });
 
   useEffect(() => {
-    const s = localStorage.getItem('dn_session');
-    if (!s) { router.push('/login'); return; }
-    const parsed = JSON.parse(s);
-    if (parsed.profile?.role !== 'admin') { router.push('/dashboard'); return; }
-    setSession(parsed);
-    loadData(parsed.access_token);
-  }, []);
+    if (!ready) return;
+    if (!session) { router.push('/login'); return; }
+    if (profile?.role !== 'admin') { router.push('/dashboard'); return; }
+    loadData(session.access_token);
+  }, [ready, session, profile]);
 
   const loadData = async (token) => {
     setLoading(true);
@@ -68,7 +67,7 @@ export default function AdminPage() {
     setTopupLoading(false);
   };
 
-  if (!session) {
+  if (!ready || !session) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', flexDirection: 'column', gap: 16 }}>
         <div className="spinner" style={{ width: 36, height: 36, borderWidth: 4 }}></div>
@@ -79,7 +78,7 @@ export default function AdminPage() {
 
   return (
     <>
-      <Navbar user={session} profile={session.profile} />
+      <Navbar user={session} profile={profile} />
       <div className="page-with-sidebar">
         <Sidebar role="admin" />
         <main className="page-content">

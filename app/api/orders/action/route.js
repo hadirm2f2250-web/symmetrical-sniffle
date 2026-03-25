@@ -41,7 +41,16 @@ export async function POST(request) {
 
     const data = await cancelOrder(order_id, selectedServer);
 
-    if (data.success) {
+    // If the provider already cancelled it (due to timeout or other reasons), they will return an error string.
+    // We should treat this as a success so the user gets refunded locally and the order is cleared.
+    const isAlreadyCanceled = !data.success && 
+      data.message && 
+      (data.message.toLowerCase().includes('batal') || 
+       data.message.toLowerCase().includes('cancel') ||
+       data.message.toLowerCase().includes('time out') ||
+       data.message.toLowerCase().includes('tidak ditemukan'));
+
+    if (data.success || isAlreadyCanceled) {
       const { data: profile } = await supabase
         .from('profiles').select('balance').eq('id', user.id).single();
 
@@ -54,10 +63,12 @@ export async function POST(request) {
         type: 'refund',
         amount: order.price,
         status: 'success',
-        metadata: { order_id, reason: 'cancelled', server: selectedServer },
+        metadata: { order_id, reason: 'cancelled or timeout', server: selectedServer },
       });
 
       await supabase.from('orders').update({ status: 'canceled' }).eq('order_id', order_id);
+
+      return NextResponse.json({ success: true, message: 'Pesanan berhasil dibatalkan dan saldo dikembalikan.' });
     }
 
     return NextResponse.json(data);

@@ -72,6 +72,7 @@ export default function Sidebar({ role }) {
         <button 
           onClick={() => {
             localStorage.removeItem('dn_session');
+            sessionStorage.removeItem('dn_session');
             router.push('/login');
           }}
           className="sidebar-link" 
