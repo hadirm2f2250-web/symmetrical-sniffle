@@ -5,7 +5,6 @@ import Navbar from '@/components/Navbar';
 import Sidebar from '@/components/Sidebar';
 import { useProfile } from '@/lib/useProfile';
 
-// Remove ACTIVE_KEY as we now fetch active orders from API
 // ── Custom Dropdown Field Component ────────────────────────────────
 function DropdownField({ label, placeholder, options, value, onChange, loading, error, onRetry, disabled, keyField, labelField }) {
   const [open, setOpen] = useState(false);
@@ -126,23 +125,32 @@ export default function OrderPage() {
   const router = useRouter();
   const { session, profile, ready, refreshProfile } = useProfile();
 
-  // Form state — add error states per dropdown
-  const [services, setServices] = useState([]);
+  // Server state
+  const [selectedServer, setSelectedServer] = useState('server3');
+
+  // Helper: cek apakah otp_code benar-benar OTP (bukan placeholder)
+  const isRealOtp = (code) => {
+    if (!code || code === '-') return false;
+    const placeholders = ['menunggu', 'waiting', 'pending'];
+    return !placeholders.includes(String(code).trim().toLowerCase());
+  };
+
+  // Form state
   const [countries, setCountries] = useState([]);
+  const [services, setServices] = useState([]);
   const [operators, setOperators] = useState([]);
 
-  const [selectedService, setSelectedService] = useState('');
   const [selectedCountry, setSelectedCountry] = useState(null);
-  const [selectedProvider, setSelectedProvider] = useState(null);
+  const [selectedService, setSelectedService] = useState(null);
   const [selectedOperator, setSelectedOperator] = useState(null);
 
-  const [loadingSvc, setLoadingSvc] = useState(false);
   const [loadingCtry, setLoadingCtry] = useState(false);
+  const [loadingSvc, setLoadingSvc] = useState(false);
   const [loadingOp, setLoadingOp] = useState(false);
   const [ordering, setOrdering] = useState(false);
 
-  const [errorSvc, setErrorSvc] = useState(false);
   const [errorCtry, setErrorCtry] = useState(false);
+  const [errorSvc, setErrorSvc] = useState(false);
   const [errorOp, setErrorOp] = useState(false);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
@@ -154,19 +162,26 @@ export default function OrderPage() {
 
   // Active orders state
   const [activeOrders, setActiveOrders] = useState([]);
-  const [actionLoading, setActionLoading] = useState(null); // stores order_id currently loading Action
+  const [actionLoading, setActionLoading] = useState(null);
 
   const token = session?.access_token;
   const authHeaders = { Authorization: `Bearer ${token}` };
 
-  // ── On mount ─────────────────────────────────────────────────────
+  // ── On mount & server change ──────────────────────────────────────
   useEffect(() => {
     if (!ready) return;
     if (!session) { router.push('/login'); return; }
 
-    loadServices();
+    loadCountries(selectedServer);
     loadActiveOrders();
-  }, [ready, session]);
+  }, [ready, session, selectedServer]);
+
+  const handleServerChange = (server) => {
+    setSelectedServer(server);
+    setSelectedCountry(null); setSelectedService(null); setSelectedOperator(null);
+    setCountries([]); setServices([]); setOperators([]);
+    setError('');
+  };
 
   // ── Auto-poll active orders every 5s ──────────────────────────────
   useEffect(() => {
@@ -180,18 +195,16 @@ export default function OrderPage() {
       const res = await fetch(`/api/orders/history?page=1`, { headers: authHeaders });
       const json = await res.json();
       if (json.success) {
-        // Fetch DB orders that are waiting/expiring OR recently received/completed in the last hour
         const recentOrders = json.data.filter(o => {
           const isPending = ['waiting', 'expiring'].includes(o.status);
-          const isRecentSuccess = ['received', 'completed'].includes(o.status) && (Date.now() - new Date(o.created_at).getTime() < 3600000);
+          const isRecentSuccess = o.status === 'received' && (Date.now() - new Date(o.created_at).getTime() < 3600000);
           return isPending || isRecentSuccess;
         });
 
-        // Sync with RumahOTP for pending orders
         const updatedOrders = await Promise.all(recentOrders.map(async (o) => {
           if (['waiting', 'expiring'].includes(o.status)) {
             try {
-              const statRes = await fetch(`/api/orders/status?order_id=${o.order_id}`);
+              const statRes = await fetch(`/api/orders/status?order_id=${o.order_id}&server=${selectedServer}`);
               const statJson = await statRes.json();
               if (statJson.success && statJson.data) {
                 return { ...o, ...statJson.data };
@@ -206,46 +219,45 @@ export default function OrderPage() {
     } catch { }
   };
 
-  const loadServices = async () => {
-    setLoadingSvc(true); setErrorSvc(false);
+  // ── Load Countries (entry point) ─────────────────────────────────
+  const loadCountries = async (server) => {
+    const srv = server || selectedServer;
+    setLoadingCtry(true); setErrorCtry(false);
     try {
-      const res = await fetch('/api/services');
+      const res = await fetch(`/api/negara?server=${srv}`);
       if (!res.ok) throw new Error();
       const data = await res.json();
       if (!data.data?.length) throw new Error();
-      setServices(data.data);
-    } catch { setErrorSvc(true); }
-    setLoadingSvc(false);
-  };
-
-  const handleServiceChange = async (code) => {
-    setSelectedService(code);
-    setSelectedCountry(null); setSelectedProvider(null);
-    setSelectedOperator(null); setCountries([]); setOperators([]);
-    setErrorCtry(false); setErrorOp(false);
-    if (!code) return;
-    setLoadingCtry(true);
-    try {
-      const res = await fetch(`/api/countries?service_id=${code}`);
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      if (!data.data?.length) throw new Error();
-      // Attach _sub for display
-      setCountries(data.data.map(c => ({ ...c, _sub: `${c.pricelist[0]?.price_format || ''} · stok: ${c.stock_total}` })));
+      setCountries(data.data);
     } catch { setErrorCtry(true); }
     setLoadingCtry(false);
   };
 
-  const handleCountryChange = async (numberId) => {
-    const country = countries.find(c => String(c.number_id) === String(numberId));
+  // ── Country → Load Services ──────────────────────────────────────
+  const handleCountryChange = async (countryId) => {
+    const country = countries.find(c => String(c.id) === String(countryId));
     setSelectedCountry(country || null);
-    setSelectedProvider(country?.pricelist[0] || null);
-    setSelectedOperator(null); setOperators([]); setErrorOp(false);
+    setSelectedService(null); setSelectedOperator(null);
+    setServices([]); setOperators([]);
+    setErrorSvc(false); setErrorOp(false);
     if (!country) return;
-    setLoadingOp(true);
+
+    // Load services and operators in parallel
+    setLoadingSvc(true); setLoadingOp(true);
     try {
-      const provider = country.pricelist[0];
-      const res = await fetch(`/api/operators?country=${encodeURIComponent(country.name)}&provider_id=${provider.provider_id}`);
+      const res = await fetch(`/api/services?negara=${countryId}&server=${selectedServer}`);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      if (!data.data?.length) throw new Error();
+      setServices(data.data.map(s => ({
+        ...s,
+        _sub: `${s.price_format} · stok: ${s.stock}`,
+      })));
+    } catch { setErrorSvc(true); }
+    setLoadingSvc(false);
+
+    try {
+      const res = await fetch(`/api/operators?negara=${countryId}&server=${selectedServer}`);
       if (!res.ok) throw new Error();
       const data = await res.json();
       if (!data.data?.length) throw new Error();
@@ -254,15 +266,20 @@ export default function OrderPage() {
     setLoadingOp(false);
   };
 
-  const retryCountry = () => selectedService && handleServiceChange(selectedService);
-  const retryOperator = () => selectedCountry && handleCountryChange(selectedCountry.number_id);
+  const handleServiceChange = (code) => {
+    const svc = services.find(s => String(s.service_code) === String(code));
+    setSelectedService(svc || null);
+  };
 
   const handleOperatorChange = (id) => {
     const op = operators.find(o => String(o.id) === String(id));
     setSelectedOperator(op || null);
   };
 
-  // Cek apakah sedang jam maintenance (23:00 - 00:10 WIB = UTC+7 → 16:00-17:10 UTC)
+  const retryServices = () => selectedCountry && handleCountryChange(selectedCountry.id);
+  const retryOperators = () => selectedCountry && handleCountryChange(selectedCountry.id);
+
+  // Cek maintenance (23:00 - 00:10 WIB)
   const isMaintenance = () => {
     const now = new Date();
     const wib = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
@@ -271,7 +288,7 @@ export default function OrderPage() {
   };
 
   const handleOrder = async () => {
-    if (!selectedService || !selectedCountry || !selectedProvider || !selectedOperator) {
+    if (!selectedCountry || !selectedService || !selectedOperator) {
       setError('Lengkapi semua pilihan terlebih dahulu'); return;
     }
     if (isMaintenance()) {
@@ -284,18 +301,17 @@ export default function OrderPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({
-          number_id: selectedCountry.number_id,
-          provider_id: selectedProvider.provider_id,
-          operator_id: selectedOperator.id,
-          price: selectedProvider.price,
-          service: services.find(s => String(s.service_code) === String(selectedService))?.service_name || '',
-          country: selectedCountry.name,
-          operator: selectedOperator.name,
+          negara: selectedCountry.id,
+          layanan: selectedService.service_code,
+          operator: selectedOperator.id,
+          price: selectedService.price,
+          service_name: selectedService.service_name,
+          country_name: selectedCountry.name,
+          server: selectedServer,
         }),
       });
       const data = await res.json();
       if (!res.ok) {
-        // Deteksi error stok habis
         const errMsg = (data.error || '').toLowerCase();
         if (errMsg.includes('stock') || errMsg.includes('stok') || errMsg.includes('no numbers') || errMsg.includes('out of stock') || errMsg.includes('not available')) {
           setError('Stok nomor habis untuk operator ini. Coba pilih operator atau negara lain.');
@@ -321,23 +337,38 @@ export default function OrderPage() {
       const res = await fetch('/api/orders/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ order_id: orderId, status: action }),
+        body: JSON.stringify({ order_id: orderId, status: action, server: selectedServer }),
       });
       const data = await res.json();
       if (data.success) {
         if (action === 'cancel') {
           await refreshProfile();
           showToast('✅ Order dibatalkan & saldo di-refund');
-        } else {
-          showToast('✅ Berhasil meminta OTP ulang');
         }
         await loadActiveOrders();
       } else {
-        showToast('❌ Gagal: ' + (data.error || 'Kesalahan server'));
+        showToast('❌ ' + (data.error || data.message || 'Kesalahan server'));
       }
     } catch {
       showToast('❌ Terjadi kesalahan jaringan');
     }
+    setActionLoading(null);
+  };
+
+  const handleComplete = async (orderId) => {
+    setActionLoading(orderId);
+    try {
+      const res = await fetch('/api/orders/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ order_id: orderId, status: 'complete', server: selectedServer }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('✅ Pesanan selesai!');
+        await loadActiveOrders();
+      }
+    } catch { }
     setActionLoading(null);
   };
 
@@ -350,8 +381,6 @@ export default function OrderPage() {
     );
   }
   if (!session) return null;
-
-  const serviceName = services.find(s => String(s.service_code) === String(selectedService))?.service_name || '';
 
   return (
     <>
@@ -375,7 +404,7 @@ export default function OrderPage() {
         <main className="page-content">
           <div className="page-header">
             <h1>Order OTP</h1>
-            <p>Pilih layanan dan beli nomor virtual dalam satu form</p>
+            <p>Pilih negara, layanan, dan operator untuk membeli nomor virtual</p>
           </div>
 
           <div className="grid-2" style={{ gap: 24, alignItems: 'flex-start' }}>
@@ -383,6 +412,34 @@ export default function OrderPage() {
             {/* ── Left: Order Form ── */}
             <div className="card">
               <div className="card-title" style={{ marginBottom: 20 }}>🛒 Form Order</div>
+
+              {/* Server Picker */}
+              <div style={{ marginBottom: 16 }}>
+                <label className="form-label" style={{ marginBottom: 8 }}>Server</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {[{ id: 'server3', label: 'Server 3' }, { id: 'server4', label: 'Server 4' }].map(srv => (
+                    <button
+                      key={srv.id}
+                      type="button"
+                      onClick={() => handleServerChange(srv.id)}
+                      style={{
+                        flex: 1, padding: '10px 14px',
+                        background: selectedServer === srv.id ? 'var(--accent-glow)' : 'var(--bg-2)',
+                        border: `1.5px solid ${selectedServer === srv.id ? 'var(--accent)' : 'var(--border)'}`,
+                        borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+                        color: selectedServer === srv.id ? 'var(--accent)' : 'var(--text-2)',
+                        fontSize: '0.85rem', fontWeight: selectedServer === srv.id ? 600 : 400,
+                        fontFamily: 'var(--font)',
+                        transition: 'all 0.15s ease',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      }}
+                    >
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: selectedServer === srv.id ? 'var(--green)' : 'var(--text-3)', display: 'inline-block' }}></span>
+                      {srv.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               {/* Info notices */}
               <div style={{
@@ -392,8 +449,7 @@ export default function OrderPage() {
                 display: 'flex', flexDirection: 'column', gap: 4,
               }}>
                 <div>🕐 <strong>Maintenance harian 23:00–00:10 WIB</strong> — transaksi pada jam tersebut akan <strong>GAGAL</strong>.</div>
-                <div>⚡ <strong>Batas kecepatan:</strong> maks. 5 permintaan per 10 detik. Spam → IP diblokir sementara oleh Cloudflare.</div>
-                <div>⚠ Jika muncul error "Gangguan server provider", artinya <strong>stok habis</strong> — coba operator/negara lain.</div>
+                <div>⚠ Jika muncul error &quot;Gangguan server provider&quot;, artinya <strong>stok habis</strong> — coba operator/negara lain.</div>
               </div>
 
               {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>⚠ {error}</div>}
@@ -406,63 +462,63 @@ export default function OrderPage() {
                 </strong>
               </div>
 
-              {/* Service Dropdown */}
-              <DropdownField
-                label="Layanan / Aplikasi"
-                placeholder="— Pilih aplikasi —"
-                options={services}
-                value={selectedService}
-                onChange={handleServiceChange}
-                loading={loadingSvc}
-                error={errorSvc}
-                onRetry={loadServices}
-                disabled={false}
-                keyField="service_code"
-                labelField="service_name"
-              />
-
-              {/* Country Dropdown */}
+              {/* 1. Country Dropdown (Entry Point) */}
               <DropdownField
                 label="Negara"
                 placeholder="— Pilih negara —"
                 options={countries}
-                value={selectedCountry?.number_id || ''}
+                value={selectedCountry?.id || ''}
                 onChange={handleCountryChange}
                 loading={loadingCtry}
                 error={errorCtry}
-                onRetry={retryCountry}
-                disabled={!selectedService}
-                keyField="number_id"
+                onRetry={loadCountries}
+                disabled={false}
+                keyField="id"
                 labelField="name"
               />
 
-              {/* Operator Dropdown */}
+              {/* 2. Service Dropdown */}
+              <DropdownField
+                label="Layanan / Aplikasi"
+                placeholder="— Pilih aplikasi —"
+                options={services}
+                value={selectedService?.service_code || ''}
+                onChange={handleServiceChange}
+                loading={loadingSvc}
+                error={errorSvc}
+                onRetry={retryServices}
+                disabled={!selectedCountry}
+                keyField="service_code"
+                labelField="service_name"
+              />
+
+              {/* 3. Operator Dropdown */}
               <DropdownField
                 label="Operator"
                 placeholder="— Pilih operator —"
                 options={operators}
                 value={selectedOperator?.id || ''}
-                onChange={(id) => { const op = operators.find(o => String(o.id) === id); setSelectedOperator(op || null); }}
+                onChange={handleOperatorChange}
                 loading={loadingOp}
                 error={errorOp}
-                onRetry={retryOperator}
+                onRetry={retryOperators}
                 disabled={!selectedCountry}
                 keyField="id"
                 labelField="name"
               />
 
               {/* Price summary */}
-              {selectedProvider && selectedOperator && (
+              {selectedService && selectedOperator && (
                 <div style={{ padding: '14px 16px', background: 'var(--bg-2)', borderRadius: 'var(--radius-sm)', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ color: 'var(--text-2)', fontSize: '0.875rem' }}>Harga per OTP</span>
                   <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--accent)', fontSize: '1.1rem' }}>
-                    {selectedProvider.price_format || `Rp${Number(selectedProvider.price).toLocaleString('id-ID')}`}
+                    {selectedService.price_format || `Rp${Number(selectedService.price).toLocaleString('id-ID')}`}
                   </span>
                 </div>
               )}
 
               {/* Insufficient balance warning */}
-              {selectedProvider && (profile?.balance || 0) < selectedProvider.price && (
+              {selectedService && (profile?.balance || 0) < selectedService.price && (
                 <div className="alert alert-error" style={{ marginBottom: 16 }}>
                   Saldo tidak cukup. <a href="/deposit" style={{ color: 'var(--accent)' }}>Top up sekarang →</a>
                 </div>
@@ -471,7 +527,7 @@ export default function OrderPage() {
               <button
                 className="btn btn-primary btn-full btn-lg"
                 onClick={handleOrder}
-                disabled={ordering || !selectedService || !selectedCountry || !selectedOperator || (profile?.balance || 0) < (selectedProvider?.price || 0)}>
+                disabled={ordering || !selectedCountry || !selectedService || !selectedOperator || (profile?.balance || 0) < (selectedService?.price || 0)}>
                 {ordering
                   ? <><span className="spinner" style={{ width: 16, height: 16 }}></span> Memesan...</>
                   : 'Beli Nomor'}
@@ -501,7 +557,7 @@ export default function OrderPage() {
                         </div>
                         <div className="otp-phone">{order.phone_number}</div>
 
-                        {order.otp_code && order.otp_code !== '-' ? (
+                        {isRealOtp(order.otp_code) ? (
                           <>
                             <div className="otp-number">{order.otp_code}</div>
                             <div className="alert alert-success" style={{ marginTop: 12, display: 'inline-block' }}>
@@ -521,15 +577,15 @@ export default function OrderPage() {
                       </div>
 
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                        {(!order.otp_code || order.otp_code === '-') && (
-                          <>
-                            <button className="btn btn-ghost btn-sm" onClick={() => handleAction(order.order_id, 'resend')} disabled={actionLoading === order.order_id}>
-                              🔄 Minta OTP Ulang
-                            </button>
-                            <button className="btn btn-danger btn-sm" onClick={() => handleAction(order.order_id, 'cancel')} disabled={actionLoading === order.order_id}>
-                              ✕ Batalkan
-                            </button>
-                          </>
+                        {isRealOtp(order.otp_code) ? (
+                          <button className="btn btn-primary btn-sm" onClick={() => handleComplete(order.order_id)} disabled={actionLoading === order.order_id}
+                            style={{ width: '100%' }}>
+                            ✅ Pesanan Selesai
+                          </button>
+                        ) : (
+                          <button className="btn btn-danger btn-sm" onClick={() => handleAction(order.order_id, 'cancel')} disabled={actionLoading === order.order_id}>
+                            ✕ Batalkan
+                          </button>
                         )}
                       </div>
                     </div>

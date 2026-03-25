@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
 import { getAuthUser } from '@/lib/auth';
-import { createOrder } from '@/lib/rumahotp';
+import { createOrder } from '@/lib/otpProvider';
 
 export async function POST(request) {
   try {
@@ -9,22 +9,22 @@ export async function POST(request) {
       throw new Error('UNAUTHORIZED');
     });
 
-    const { number_id, provider_id, operator_id, price, service, country, operator } = await request.json();
+    const { negara, layanan, operator, price, service_name, country_name, server } = await request.json();
+    const selectedServer = server || 'server3';
 
-    if (!number_id || !provider_id || !operator_id) {
+    if (!negara || !layanan || !operator) {
       return NextResponse.json({ error: 'Parameter tidak lengkap' }, { status: 400 });
     }
 
     const supabase = getServiceSupabase();
 
-    // Check user balance — use upsert as fallback if trigger didn't create profile
+    // Check user balance
     let { data: profile, error: profileErr } = await supabase
       .from('profiles').select('balance, id').eq('id', user.id).single();
 
     console.log('[orders/create] user.id:', user.id, '| profile:', profile, '| err:', profileErr?.message);
 
     if (!profile) {
-      // Auto-create profile (in case DB trigger didn't run during registration)
       const { data: newProfile, error: createErr } = await supabase
         .from('profiles')
         .upsert({ id: user.id, username: user.email?.split('@')[0] || 'user', balance: 0, role: 'user' }, { onConflict: 'id' })
@@ -41,10 +41,10 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Saldo tidak cukup. Silakan deposit terlebih dahulu.' }, { status: 402 });
     }
 
-    const orderData = await createOrder(number_id, provider_id, operator_id);
-    console.log('[RumahOTP createOrder response]', JSON.stringify(orderData));
+    const orderData = await createOrder(negara, layanan, operator, selectedServer);
+    console.log('[JasaOTP createOrder response]', JSON.stringify(orderData));
     if (!orderData.success) {
-      let errMsg = orderData.message || orderData.error || 'Terjadi kesalahan pada sistem provider.';
+      let errMsg = orderData.message || 'Terjadi kesalahan pada sistem provider.';
       if (typeof errMsg === 'object') {
         errMsg = 'Gangguan pada server provider, silakan coba beberapa saat lagi.';
       }
@@ -54,14 +54,15 @@ export async function POST(request) {
     const order = orderData.data;
     const expiresAt = new Date(Date.now() + order.expires_in_minute * 60 * 1000).toISOString();
 
+    // Deduct balance
     await supabase.from('profiles').update({ balance: profile.balance - price }).eq('id', user.id);
 
     const { data: dbOrder } = await supabase.from('orders').insert({
       user_id: user.id,
       order_id: order.order_id,
-      service: order.service || service,
-      country: order.country || country,
-      operator: order.operator || operator,
+      service: service_name || layanan,
+      country: country_name || `Country ${negara}`,
+      operator: operator,
       phone_number: order.phone_number,
       status: 'waiting',
       price,
@@ -73,7 +74,7 @@ export async function POST(request) {
       type: 'purchase',
       amount: price,
       status: 'success',
-      metadata: { order_id: order.order_id, service: order.service },
+      metadata: { order_id: order.order_id, service: service_name || layanan, server: selectedServer },
     });
 
     return NextResponse.json({ success: true, data: { ...order, db_id: dbOrder?.id, expires_at: expiresAt } });

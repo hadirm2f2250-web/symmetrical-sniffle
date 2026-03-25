@@ -97,15 +97,25 @@ export default function AdminPage() {
 
           {/* Provider Balance */}
           {providerBalance && (
-            <div className="admin-provider-card">
-              <div>
-                <div style={{ fontSize:'0.8rem', color:'var(--text-2)', marginBottom:4 }}>💰 Saldo Provider API</div>
-                <div className="provider-balance">{providerBalance.formated}</div>
-                <div style={{ fontSize:'0.8rem', color:'var(--text-3)', marginTop:4 }}>
-                  {providerBalance.username} · {providerBalance.email}
-                </div>
-              </div>
-              <button className="btn btn-primary btn-sm" onClick={loadData} style={{ marginLeft:'auto' }}>
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 8 }}>
+              {['server3', 'server4'].map(srvKey => {
+                const srv = providerBalance[srvKey];
+                if (!srv) return null;
+                return (
+                  <div key={srvKey} className="admin-provider-card" style={{ flex: 1, minWidth: 250 }}>
+                    <div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-2)', marginBottom: 4 }}>
+                        💰 Saldo {srv.email || srvKey}
+                      </div>
+                      <div className="provider-balance">{srv.formated}</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-3)', marginTop: 4 }}>
+                        {srv.username}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <button className="btn btn-primary btn-sm" onClick={() => loadData(session.access_token)} style={{ alignSelf: 'center' }}>
                 🔄 Refresh
               </button>
             </div>
