@@ -7,7 +7,7 @@ import { useProfile } from '@/lib/useProfile';
 import { QRCodeSVG } from 'qrcode.react';
 import { generateDynamicQris } from '@/lib/qris';
 
-const PRESETS = [10000, 20000, 50000, 100000, 200000, 500000];
+const PRESETS = [5000, 10000, 20000, 50000, 100000, 200000];
 const STATIC_QRIS = "00020101021126570011ID.DANA.WWW011893600915396511043402099651104340303UMI51440014ID.CO.QRIS.WWW0215ID10254223729910303UMI5204737253033605802ID5912YogaxD Store6013Kab. Sidoarjo610561256630450B6";
 const WA_KIRIM = "6283843173660"; // Nomor WA Admin untuk konfirmasi
 
@@ -27,7 +27,7 @@ export default function DepositPage() {
 
   const handleCreate = () => {
     const amt = parseInt(amount);
-    if (!amt || amt < 10000) { setError('Minimum deposit Rp10.000'); return; }
+    if (!amt || amt < 5000) { setError('Minimum deposit Rp5.000'); return; }
     setLoading(true); setError('');
     try {
       const qris = generateDynamicQris(STATIC_QRIS, amt);
@@ -83,7 +83,7 @@ export default function DepositPage() {
                 </div>
 
                 <div className="form-group" style={{ marginTop: 20 }}>
-                  <label className="form-label">Nominal Custom (Min Rp10.000)</label>
+                  <label className="form-label">Nominal Custom (Min Rp5.000)</label>
                   <input type="number" className="form-input" placeholder="Contoh: 15000"
                     value={amount} onChange={e => setAmount(e.target.value)} />
                 </div>
@@ -96,7 +96,7 @@ export default function DepositPage() {
                 </div>
 
                 <button className="btn btn-primary btn-full btn-lg" style={{ marginTop: 24 }}
-                  onClick={handleCreate} disabled={loading || !amount || parseInt(amount) < 10000}>
+                  onClick={handleCreate} disabled={loading || !amount || parseInt(amount) < 5000}>
                   {loading ? <span className="spinner"></span> : 'Buat QRIS'}
                 </button>
               </div>
