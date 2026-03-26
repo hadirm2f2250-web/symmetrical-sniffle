@@ -25,6 +25,15 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Order tidak ditemukan' }, { status: 404 });
     }
 
+    // Check current order status FIRST — don't poll for canceled/completed orders
+    const { data: currentOrder } = await supabase
+      .from('orders').select('status').eq('order_id', order_id).single();
+
+    if (!currentOrder || !['waiting', 'expiring'].includes(currentOrder.status)) {
+      // Order already finalized (canceled/completed/received) — skip provider poll
+      return NextResponse.json({ success: true, data: currentOrder });
+    }
+
     const data = await getOrderStatus(order_id, server);
 
     if (data.success) {
@@ -35,12 +44,15 @@ export async function GET(request) {
         updatePayload.otp_code = data.data.otp_code;
         updatePayload.status = 'received';
       } else {
-        // Kalau masih waiting, reset otp_code yang mungkin salah tersimpan
         updatePayload.otp_code = null;
         updatePayload.status = 'waiting';
       }
 
-      await supabase.from('orders').update(updatePayload).eq('order_id', order_id);
+      // CRITICAL: Only update if order is STILL waiting/expiring (not canceled by another request)
+      await supabase.from('orders')
+        .update(updatePayload)
+        .eq('order_id', order_id)
+        .in('status', ['waiting', 'expiring']);
     }
 
     return NextResponse.json(data);

@@ -52,6 +52,21 @@ export async function POST(request) {
 
     if (data.success || isAlreadyCanceled) {
 
+      // DOUBLE-CHECK: Ensure no refund transaction already exists for this order
+      const { data: existingRefund } = await supabase
+        .from('transactions')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('type', 'refund')
+        .filter('metadata->>order_id', 'eq', order_id)
+        .maybeSingle();
+
+      if (existingRefund) {
+        // Refund already processed — just ensure order status is correct
+        await supabase.from('orders').update({ status: 'canceled' }).eq('order_id', order_id);
+        return NextResponse.json({ success: false, error: 'Refund sudah diproses sebelumnya.' }, { status: 400 });
+      }
+
       // ATOMIC UPDATE: Only update if the order is still waiting/expiring.
       // If a concurrent request already cancelled it, this will safely return no rows.
       const { data: updatedOrder, error: updateErr } = await supabase
@@ -67,14 +82,13 @@ export async function POST(request) {
         return NextResponse.json({ success: false, error: 'Pesanan sudah dibatalkan atau sedang diproses.' }, { status: 400 });
       }
 
-      // Atomic refund: increment balance directly to avoid race condition
+      // Atomic refund: increment balance directly — NO fallback to prevent race condition
       const { error: rpcErr } = await supabase.rpc('increment_balance', { uid: user.id, amt: order.price });
       if (rpcErr) {
-        // Fallback if RPC doesn't exist: read + write (less safe but functional)
-        const { data: profile } = await supabase
-          .from('profiles').select('balance').eq('id', user.id).single();
-        await supabase.from('profiles')
-          .update({ balance: (profile?.balance || 0) + order.price }).eq('id', user.id);
+        // RPC failed — revert the order status and report error (do NOT use read+write fallback)
+        await supabase.from('orders').update({ status: 'waiting' }).eq('order_id', order_id);
+        console.error('increment_balance RPC failed:', rpcErr);
+        return NextResponse.json({ error: 'Gagal mengembalikan saldo. Hubungi admin.' }, { status: 500 });
       }
 
       await supabase.from('transactions').insert({
