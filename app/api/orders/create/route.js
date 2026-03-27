@@ -64,6 +64,7 @@ export async function POST(request) {
       phone_number: order.phone_number,
       status: 'waiting',
       price,
+      server: selectedServer,
       expires_at: expiresAt,
     }).select().single();
 

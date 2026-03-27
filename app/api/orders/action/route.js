@@ -18,7 +18,7 @@ export async function POST(request) {
 
     // Verify the order belongs to this user
     const { data: order, error: orderErr } = await supabase
-      .from('orders').select('price, user_id, status').eq('order_id', order_id).single();
+      .from('orders').select('price, user_id, status, server').eq('order_id', order_id).single();
 
     if (orderErr || !order) return NextResponse.json({ error: 'Order tidak ditemukan' }, { status: 404 });
     if (order.user_id !== user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -39,7 +39,9 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: 'Order ini sudah selesai atau menerima OTP, tidak dapat dibatalkan.' }, { status: 400 });
     }
 
-    const data = await cancelOrder(order_id, selectedServer);
+    // CRITICAL: Use server from DB (where the order was originally created), NOT from frontend state
+    const orderServer = order.server || selectedServer;
+    const data = await cancelOrder(order_id, orderServer);
 
     // If the provider already cancelled it (due to timeout or other reasons), they will return an error string.
     // We should treat this as a success so the user gets refunded locally and the order is cleared.
@@ -96,7 +98,7 @@ export async function POST(request) {
         type: 'refund',
         amount: order.price,
         status: 'success',
-        metadata: { order_id, reason: 'cancelled or timeout', server: selectedServer },
+        metadata: { order_id, reason: 'cancelled or timeout', server: orderServer },
       });
 
       return NextResponse.json({ success: true, message: 'Pesanan berhasil dibatalkan dan saldo dikembalikan.' });

@@ -20,7 +20,7 @@ export async function GET(request) {
 
     // Verify the order belongs to this user
     const { data: orderRow } = await supabase
-      .from('orders').select('user_id').eq('order_id', order_id).single();
+      .from('orders').select('user_id, server').eq('order_id', order_id).single();
     if (!orderRow || orderRow.user_id !== user.id) {
       return NextResponse.json({ error: 'Order tidak ditemukan' }, { status: 404 });
     }
@@ -34,7 +34,9 @@ export async function GET(request) {
       return NextResponse.json({ success: true, data: currentOrder });
     }
 
-    const data = await getOrderStatus(order_id, server);
+    // CRITICAL: Use server from DB, not from query param
+    const orderServer = orderRow.server || server;
+    const data = await getOrderStatus(order_id, orderServer);
 
     if (data.success) {
       const updatePayload = { status: data.data.status };

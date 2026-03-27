@@ -25,6 +25,7 @@ export default function LoginPage() {
 
       const sessionData = JSON.stringify({
         access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
         user_id: data.user.id,
         email: data.user.email,
         profile: data.user.profile,

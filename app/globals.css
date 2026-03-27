@@ -435,3 +435,63 @@ tbody tr:hover { background: var(--bg-2); }
   from { transform: translateY(-10px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
 }
+
+/* ─── Dark Mode ─────────────────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-0: #0b0f19;
+    --bg-1: #111827;
+    --bg-2: #1f2937;
+    --bg-3: #374151;
+    --bg-card: #1a2233;
+    --border: #2d3748;
+    --border-hover: #4a5568;
+    --accent: #10b981;
+    --accent-dim: #34d399;
+    --accent-glow: rgba(16, 185, 129, 0.15);
+    --text-1: #f1f5f9;
+    --text-2: #94a3b8;
+    --text-3: #64748b;
+  }
+
+  body { background: var(--bg-0); color: var(--text-1); }
+
+  .navbar {
+    background: rgba(17, 24, 39, 0.85);
+    border-bottom-color: var(--border);
+  }
+
+  .navbar-logo span { color: var(--text-1); }
+
+  .sidebar { background: var(--bg-card); border-right-color: var(--border); }
+
+  .form-input { background: var(--bg-2); color: var(--text-1); border-color: var(--border); }
+  .form-input::placeholder { color: var(--text-3); }
+
+  select.form-input option { background: var(--bg-2); color: var(--text-1); }
+
+  .card { background: var(--bg-card); border-color: var(--border); }
+  .card:hover { border-color: var(--border-hover); }
+
+  .auth-box { background: var(--bg-card); border-color: var(--border); }
+
+  .stat-card { background: var(--bg-card); border-color: var(--border); }
+
+  .btn-secondary { background: var(--bg-3); color: var(--text-1); border-color: var(--border); }
+  .btn-ghost { color: var(--text-2); border-color: var(--border); }
+
+  thead th { background: var(--bg-2); color: var(--text-2); border-bottom-color: var(--border); }
+  tbody td { border-bottom-color: var(--border); color: var(--text-1); }
+  tbody tr:hover { background: var(--bg-2); }
+
+  .balance-chip { background: var(--bg-2); border-color: var(--border); }
+
+  .amount-btn { background: var(--bg-2); border-color: var(--border); color: var(--text-1); }
+
+  ::-webkit-scrollbar-track { background: var(--bg-1); }
+  ::-webkit-scrollbar-thumb { background: var(--border-hover); }
+
+  .service-card { background: var(--bg-card); border-color: var(--border); }
+  .list-item { background: var(--bg-card); border-color: var(--border); }
+  .feature-card { background: var(--bg-card); border-color: var(--border); }
+}
