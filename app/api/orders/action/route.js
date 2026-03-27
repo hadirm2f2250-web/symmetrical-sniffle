@@ -18,7 +18,7 @@ export async function POST(request) {
 
     // Verify the order belongs to this user
     const { data: order, error: orderErr } = await supabase
-      .from('orders').select('price, user_id, status, server').eq('order_id', order_id).single();
+      .from('orders').select('price, user_id, status, server, created_at').eq('order_id', order_id).single();
 
     if (orderErr || !order) return NextResponse.json({ error: 'Order tidak ditemukan' }, { status: 404 });
     if (order.user_id !== user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -39,18 +39,30 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: 'Order ini sudah selesai atau menerima OTP, tidak dapat dibatalkan.' }, { status: 400 });
     }
 
+    // GUARD: JasaOTP requires 2 minutes before cancel is allowed
+    if (status === 'cancel') {
+      const ageMs = order.created_at ? Date.now() - new Date(order.created_at).getTime() : Infinity;
+      if (ageMs < 2 * 60 * 1000) {
+        const remainingSec = Math.ceil((2 * 60 * 1000 - ageMs) / 1000);
+        return NextResponse.json({ success: false, error: `Pesanan belum bisa dibatalkan. Tunggu ${remainingSec} detik lagi (minimal 2 menit setelah order).` }, { status: 400 });
+      }
+    }
+
     // CRITICAL: Use server from DB (where the order was originally created), NOT from frontend state
     const orderServer = order.server || selectedServer;
     const data = await cancelOrder(order_id, orderServer);
 
-    // If the provider already cancelled it (due to timeout or other reasons), they will return an error string.
-    // We should treat this as a success so the user gets refunded locally and the order is cleared.
-    const isAlreadyCanceled = !data.success && 
+    // If the provider already cancelled it (due to timeout or other reasons), treat as success.
+    // IMPORTANT: Do NOT match EARLY_CANCEL_DENIED — its message contains 'batal'/'cancel' but
+    // JasaOTP has NOT actually cancelled the order yet.
+    const isEarlyCancel = !data.success &&
+      data.message && data.message.toLowerCase().includes('belum bisa');
+    const isAlreadyCanceled = !data.success && !isEarlyCancel &&
       data.message && 
-      (data.message.toLowerCase().includes('batal') || 
-       data.message.toLowerCase().includes('cancel') ||
+      (data.message.toLowerCase().includes('tidak ditemukan') ||
        data.message.toLowerCase().includes('time out') ||
-       data.message.toLowerCase().includes('tidak ditemukan'));
+       (data.message.toLowerCase().includes('batal') && !data.message.toLowerCase().includes('belum')) ||
+       (data.message.toLowerCase().includes('cancel') && !data.message.toLowerCase().includes('belum')));
 
     if (data.success || isAlreadyCanceled) {
 
