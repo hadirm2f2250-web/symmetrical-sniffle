@@ -73,13 +73,14 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Gagal menyimpan order. Saldo tidak dipotong.' }, { status: 500 });
     }
 
-    // Deduct balance AFTER order insert confirmed
-    await supabase.rpc('decrement_balance', { uid: user.id, amt: price }).then(({ error: rpcErr }) => {
-      // Fallback to normal update if RPC doesn't exist
-      if (rpcErr) {
-        return supabase.from('profiles').update({ balance: profile.balance - price }).eq('id', user.id);
-      }
-    });
+    // Deduct balance AFTER order insert confirmed — NO fallback to prevent race condition
+    const { error: rpcErr } = await supabase.rpc('decrement_balance', { uid: user.id, amt: price });
+    if (rpcErr) {
+      // RPC failed — revert the order so user doesn't have an active order with un-deducted balance
+      await supabase.from('orders').delete().eq('order_id', order.order_id);
+      console.error('[orders/create] decrement_balance RPC failed:', rpcErr.message);
+      return NextResponse.json({ error: 'Gagal memotong saldo. Pesanan dibatalkan. Hubungi admin.' }, { status: 500 });
+    }
 
     await supabase.from('transactions').insert({
       user_id: user.id,
