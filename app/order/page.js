@@ -194,6 +194,46 @@ export default function OrderPage() {
     return () => clearInterval(interval);
   }, [activeOrders]);
 
+  // ── Auto-cancel expired order (checks server-side status first) ────
+  const autoCancel = useCallback(async (orderId) => {
+    if (cancellingRef.current.has(orderId)) return;
+    cancellingRef.current.add(orderId);
+    try {
+      // Re-check server status to avoid cancelling an order that already received OTP
+      const statRes = await fetch(`/api/orders/status?order_id=${orderId}&server=${selectedServer}`, { headers: authHeaders });
+      const statJson = await statRes.json();
+      if (statJson.success && statJson.data) {
+        // If order already received OTP or is completed/canceled, do NOT cancel
+        if (!['waiting', 'expiring'].includes(statJson.data.status)) {
+          await loadActiveOrders();
+          return;
+        }
+        // If OTP was received since last poll, don't cancel
+        if (statJson.data.otp_code && statJson.data.otp_code !== '-') {
+          await loadActiveOrders();
+          return;
+        }
+      }
+      // Proceed with cancel
+      const res = await fetch('/api/orders/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ order_id: orderId, status: 'cancel', server: selectedServer }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        await refreshProfile();
+        showToast('⏱ Order expired — saldo di-refund otomatis');
+      }
+      // Silently ignore errors from auto-cancel (order may have been cancelled/completed by another process)
+      await loadActiveOrders();
+    } catch {
+      // Network error — will retry on next tick
+    } finally {
+      cancellingRef.current.delete(orderId);
+    }
+  }, [selectedServer, token]);
+
   // ── Auto-update exact time & Auto-cancel expired orders ───────────
   useEffect(() => {
     const timer = setInterval(() => {
@@ -201,20 +241,17 @@ export default function OrderPage() {
       setNow(currentTime);
 
       activeOrders.forEach(order => {
-        if (['waiting', 'expiring'].includes(order.status)) {
+        // Only auto-cancel waiting/expiring orders that have NOT received OTP
+        if (['waiting', 'expiring'].includes(order.status) && !isRealOtp(order.otp_code)) {
           const remainingMs = order.expires_at ? new Date(order.expires_at) - currentTime : 0;
-          // Use Set guard so multiple expired orders don't conflict
           if (remainingMs <= 0 && !cancellingRef.current.has(order.order_id)) {
-            cancellingRef.current.add(order.order_id);
-            handleAction(order.order_id, 'cancel').finally(() => {
-              cancellingRef.current.delete(order.order_id);
-            });
+            autoCancel(order.order_id);
           }
         }
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [activeOrders, actionLoading]);
+  }, [activeOrders, autoCancel]);
 
   const loadActiveOrders = async () => {
     try {
@@ -592,15 +629,17 @@ export default function OrderPage() {
                             </div>
                           </>
                         ) : (
-                          <div style={{ margin: '16px 0', display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', color: 'var(--text-2)', fontSize: '0.85rem' }}>
-                            <span className="spinner" style={{ width: 14, height: 14 }}></span> Menunggu OTP...
-                          </div>
-                        )}
+                          <>
+                            <div style={{ margin: '16px 0', display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', color: 'var(--text-2)', fontSize: '0.85rem' }}>
+                              <span className="spinner" style={{ width: 14, height: 14 }}></span> Menunggu OTP...
+                            </div>
 
-                        <div className="timer" style={{ marginTop: 12 }}>
-                          ⏱ {String(mins).padStart(2, '0')}:{String(secs).padStart(2, '0')}
-                        </div>
-                        <div style={{ color: 'var(--text-3)', fontSize: '0.75rem', marginTop: 4 }}>Waktu tersisa</div>
+                            <div className="timer" style={{ marginTop: 12 }}>
+                              ⏱ {String(mins).padStart(2, '0')}:{String(secs).padStart(2, '0')}
+                            </div>
+                            <div style={{ color: 'var(--text-3)', fontSize: '0.75rem', marginTop: 4 }}>Waktu tersisa</div>
+                          </>
+                        )}
                       </div>
 
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
