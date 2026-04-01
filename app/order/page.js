@@ -265,7 +265,8 @@ export default function OrderPage() {
         });
 
         const updatedOrders = await Promise.all(recentOrders.map(async (o) => {
-          if (['waiting', 'expiring'].includes(o.status)) {
+          // Skip polling for orders currently being auto-cancelled (prevents race condition)
+          if (['waiting', 'expiring'].includes(o.status) && !cancellingRef.current.has(o.order_id)) {
             try {
               const statRes = await fetch(`/api/orders/status?order_id=${o.order_id}&server=${selectedServer}`, { headers: authHeaders });
               const statJson = await statRes.json();
