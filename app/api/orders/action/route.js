@@ -30,7 +30,20 @@ export async function POST(request) {
 
     // Mark as completed (user confirms OTP received)
     if (status === 'complete') {
-      await supabase.from('orders').update({ status: 'completed' }).eq('order_id', order_id);
+      // GUARD: Only allow completing if order is still in a valid pre-complete state
+      if (['canceled', 'completed'].includes(order.status)) {
+        return NextResponse.json({ success: false, error: 'Pesanan sudah dibatalkan atau diselesaikan sebelumnya.' }, { status: 400 });
+      }
+      // Atomic: only update if still in valid state (prevents race with concurrent cancel)
+      const { data: completedOrder } = await supabase.from('orders')
+        .update({ status: 'completed' })
+        .eq('order_id', order_id)
+        .in('status', ['received', 'waiting', 'expiring'])
+        .select()
+        .maybeSingle();
+      if (!completedOrder) {
+        return NextResponse.json({ success: false, error: 'Pesanan sudah dibatalkan atau diselesaikan sebelumnya.' }, { status: 400 });
+      }
       return NextResponse.json({ success: true, message: 'Pesanan selesai' });
     }
 
