@@ -194,34 +194,18 @@ export default function OrderPage() {
     return () => clearInterval(interval);
   }, [activeOrders]);
 
-  // ── Auto-cancel expired order (checks server-side status first) ────
+  // ── Auto-cancel expired order ───────────────────────────────────────
+  // Saat timer habis, langsung kirim cancel ke server.
+  // Server akan deteksi bahwa order EXPIRED → skip call JasaOTP → langsung refund.
+  // Tidak perlu re-check status karena server sudah ada guard duplikasi.
   const autoCancel = useCallback(async (orderId) => {
     if (cancellingRef.current.has(orderId)) return;
     cancellingRef.current.add(orderId);
 
-    // ✅ FIX: Immediately mark order as 'cancelling' in local state so timer
-    // doesn't re-trigger autoCancel and UI shows 'Expired' not '00:00 spinner'
+    // Langsung hapus dari UI — tidak tampilkan 00:00 spinner lagi
     setActiveOrders(prev => prev.filter(o => o.order_id !== orderId));
 
     try {
-      // Re-check server status to avoid cancelling an order that already received OTP
-      const statRes = await fetch(`/api/orders/status?order_id=${orderId}&server=${selectedServer}`, { headers: authHeaders });
-      const statJson = await statRes.json();
-      if (statJson.success && statJson.data) {
-        // If order already received OTP or is completed/canceled, do NOT cancel
-        if (!['waiting', 'expiring'].includes(statJson.data.status)) {
-          await loadActiveOrders();
-          cancellingRef.current.delete(orderId);
-          return;
-        }
-        // If OTP was received since last poll, don't cancel
-        if (statJson.data.otp_code && statJson.data.otp_code !== '-') {
-          await loadActiveOrders();
-          cancellingRef.current.delete(orderId);
-          return;
-        }
-      }
-      // Proceed with cancel
       const res = await fetch('/api/orders/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
@@ -232,14 +216,14 @@ export default function OrderPage() {
         await refreshProfile();
         showToast('⏱ Order expired — saldo di-refund otomatis');
       }
-      // Silently ignore errors from auto-cancel (order may have been cancelled/completed by another process)
       await loadActiveOrders();
     } catch {
-      // Network error — will retry on next tick
+      // Network error — order tetap hilang dari UI, akan sync saat reload
     } finally {
       cancellingRef.current.delete(orderId);
     }
   }, [selectedServer, token]);
+
 
   // ── Auto-update exact time & Auto-cancel expired orders ───────────
   useEffect(() => {
