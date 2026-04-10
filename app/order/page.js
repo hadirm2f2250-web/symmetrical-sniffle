@@ -198,6 +198,11 @@ export default function OrderPage() {
   const autoCancel = useCallback(async (orderId) => {
     if (cancellingRef.current.has(orderId)) return;
     cancellingRef.current.add(orderId);
+
+    // ✅ FIX: Immediately mark order as 'cancelling' in local state so timer
+    // doesn't re-trigger autoCancel and UI shows 'Expired' not '00:00 spinner'
+    setActiveOrders(prev => prev.filter(o => o.order_id !== orderId));
+
     try {
       // Re-check server status to avoid cancelling an order that already received OTP
       const statRes = await fetch(`/api/orders/status?order_id=${orderId}&server=${selectedServer}`, { headers: authHeaders });
@@ -206,11 +211,13 @@ export default function OrderPage() {
         // If order already received OTP or is completed/canceled, do NOT cancel
         if (!['waiting', 'expiring'].includes(statJson.data.status)) {
           await loadActiveOrders();
+          cancellingRef.current.delete(orderId);
           return;
         }
         // If OTP was received since last poll, don't cancel
         if (statJson.data.otp_code && statJson.data.otp_code !== '-') {
           await loadActiveOrders();
+          cancellingRef.current.delete(orderId);
           return;
         }
       }
@@ -242,9 +249,12 @@ export default function OrderPage() {
 
       activeOrders.forEach(order => {
         // Only auto-cancel waiting/expiring orders that have NOT received OTP
+        // Guard: skip if already in cancellingRef (prevents double-trigger)
         if (['waiting', 'expiring'].includes(order.status) && !isRealOtp(order.otp_code)) {
           const remainingMs = order.expires_at ? new Date(order.expires_at) - currentTime : 0;
           if (remainingMs <= 0 && !cancellingRef.current.has(order.order_id)) {
+            // ✅ FIX: add to ref BEFORE calling to prevent multiple triggers in same tick
+            cancellingRef.current.add(order.order_id);
             autoCancel(order.order_id);
           }
         }
@@ -631,14 +641,22 @@ export default function OrderPage() {
                           </>
                         ) : (
                           <>
-                            <div style={{ margin: '16px 0', display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', color: 'var(--text-2)', fontSize: '0.85rem' }}>
-                              <span className="spinner" style={{ width: 14, height: 14 }}></span> Menunggu OTP...
-                            </div>
-
-                            <div className="timer" style={{ marginTop: 12 }}>
-                              ⏱ {String(mins).padStart(2, '0')}:{String(secs).padStart(2, '0')}
-                            </div>
-                            <div style={{ color: 'var(--text-3)', fontSize: '0.75rem', marginTop: 4 }}>Waktu tersisa</div>
+                            {remainingMs <= 0 ? (
+                              // ✅ FIX: show Expired instead of 00:00 with spinner
+                              <div style={{ margin: '16px 0', display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', color: 'var(--text-3)', fontSize: '0.85rem' }}>
+                                ⏳ Order expired — sedang diproses...
+                              </div>
+                            ) : (
+                              <>
+                                <div style={{ margin: '16px 0', display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', color: 'var(--text-2)', fontSize: '0.85rem' }}>
+                                  <span className="spinner" style={{ width: 14, height: 14 }}></span> Menunggu OTP...
+                                </div>
+                                <div className="timer" style={{ marginTop: 12 }}>
+                                  ⏱ {String(mins).padStart(2, '0')}:{String(secs).padStart(2, '0')}
+                                </div>
+                                <div style={{ color: 'var(--text-3)', fontSize: '0.75rem', marginTop: 4 }}>Waktu tersisa</div>
+                              </>
+                            )}
                           </>
                         )}
                       </div>

@@ -31,9 +31,12 @@ export async function POST(request) {
       return NextResponse.json({ error: 'User tidak ditemukan' }, { status: 404 });
     }
 
-    const newBalance = profile.balance + amount;
-
-    await supabase.from('profiles').update({ balance: newBalance }).eq('id', user_id);
+    // Atomic increment via RPC — prevents race condition if admin clicks twice
+    const { error: rpcErr } = await supabase.rpc('increment_balance', { uid: user_id, amt: amount });
+    if (rpcErr) {
+      console.error('increment_balance RPC failed (topup):', rpcErr);
+      return NextResponse.json({ error: 'Gagal menambahkan saldo: ' + rpcErr.message }, { status: 500 });
+    }
 
     await supabase.from('transactions').insert({
       user_id,
@@ -45,7 +48,7 @@ export async function POST(request) {
 
     return NextResponse.json({
       success: true,
-      data: { username: profile.username, previous_balance: profile.balance, new_balance: newBalance, topup_amount: amount },
+      data: { username: profile.username, topup_amount: amount },
     });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
