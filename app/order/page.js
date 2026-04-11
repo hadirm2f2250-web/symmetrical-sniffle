@@ -125,6 +125,10 @@ export default function OrderPage() {
   const router = useRouter();
   const { session, profile, ready, refreshProfile } = useProfile();
 
+  // Ref to always access the LATEST session token (avoids stale closure in callbacks)
+  const sessionRef = useRef(null);
+  useEffect(() => { sessionRef.current = session; }, [session]);
+
   // Server state
   const [selectedServer, setSelectedServer] = useState('server3');
 
@@ -168,6 +172,8 @@ export default function OrderPage() {
 
   const token = session?.access_token;
   const authHeaders = { Authorization: `Bearer ${token}` };
+  // Helper: always get fresh headers (prevents stale token after auto-refresh)
+  const getFreshHeaders = () => ({ Authorization: `Bearer ${sessionRef.current?.access_token || token}` });
 
   // ── On mount & server change ──────────────────────────────────────
   useEffect(() => {
@@ -206,9 +212,10 @@ export default function OrderPage() {
     setActiveOrders(prev => prev.filter(o => o.order_id !== orderId));
 
     try {
+      // ✅ getFreshHeaders() agar token terbaru dipakai (anti stale closure setelah auto-refresh)
       const res = await fetch('/api/orders/action', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        headers: { 'Content-Type': 'application/json', ...getFreshHeaders() },
         body: JSON.stringify({ order_id: orderId, status: 'cancel', server: selectedServer }),
       });
       const data = await res.json();
@@ -222,7 +229,7 @@ export default function OrderPage() {
     } finally {
       cancellingRef.current.delete(orderId);
     }
-  }, [selectedServer, token]);
+  }, [selectedServer]);
 
 
   // ── Auto-update exact time & Auto-cancel expired orders ───────────
@@ -237,8 +244,6 @@ export default function OrderPage() {
         if (['waiting', 'expiring'].includes(order.status) && !isRealOtp(order.otp_code)) {
           const remainingMs = order.expires_at ? new Date(order.expires_at) - currentTime : 0;
           if (remainingMs <= 0 && !cancellingRef.current.has(order.order_id)) {
-            // ✅ FIX: add to ref BEFORE calling to prevent multiple triggers in same tick
-            cancellingRef.current.add(order.order_id);
             autoCancel(order.order_id);
           }
         }
@@ -249,7 +254,7 @@ export default function OrderPage() {
 
   const loadActiveOrders = async () => {
     try {
-      const res = await fetch(`/api/orders/history?page=1`, { headers: authHeaders });
+      const res = await fetch(`/api/orders/history?page=1`, { headers: getFreshHeaders() });
       const json = await res.json();
       if (json.success) {
         const recentOrders = json.data.filter(o => {
@@ -262,7 +267,7 @@ export default function OrderPage() {
           // Skip polling for orders currently being auto-cancelled (prevents race condition)
           if (['waiting', 'expiring'].includes(o.status) && !cancellingRef.current.has(o.order_id)) {
             try {
-              const statRes = await fetch(`/api/orders/status?order_id=${o.order_id}&server=${selectedServer}`, { headers: authHeaders });
+              const statRes = await fetch(`/api/orders/status?order_id=${o.order_id}&server=${selectedServer}`, { headers: getFreshHeaders() });
               const statJson = await statRes.json();
               if (statJson.success && statJson.data) {
                 return { ...o, ...statJson.data };
