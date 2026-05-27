@@ -19,8 +19,9 @@ export default function DepositPage() {
   const [error, setError] = useState('');
   const [qrString, setQrString] = useState(null);
   const [depositId, setDepositId] = useState('');
-  const [depositOpen, setDepositOpen] = useState(true);
+  const [depositOpen, setDepositOpen] = useState(false); // default false until confirmed from server
   const [statusLoading, setStatusLoading] = useState(true);
+
 
   useEffect(() => {
     if (!ready) return;
@@ -76,7 +77,21 @@ export default function DepositPage() {
             <p style={{ color: 'var(--text-2)', marginTop: 4 }}>Isi saldo instan via QRIS All Payment.</p>
           </div>
 
+          {/* ── Loading status check ── */}
+          {statusLoading && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '20px 24px', background: 'var(--bg-card)',
+              border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+              marginBottom: 24, color: 'var(--text-3)', fontSize: '0.88rem',
+            }}>
+              <span className="spinner" style={{ width: 16, height: 16, flexShrink: 0 }} />
+              Memeriksa status deposit...
+            </div>
+          )}
+
           {/* ── Status Deposit Tertutup ── */}
+
           {!statusLoading && !depositOpen && (
             <div style={{
               background: 'linear-gradient(135deg, #2d1a1a 0%, #3d1c1c 100%)',
@@ -115,8 +130,9 @@ export default function DepositPage() {
 
           {error && <div className="alert alert-error">⚠ {error}</div>}
 
-          {depositOpen && (
+          {!statusLoading && depositOpen && (
             <div className="grid-2" style={{ gap: 24, alignItems: 'flex-start' }}>
+
               {/* Left: Input */}
               {!qrString && (
                 <div className="card">

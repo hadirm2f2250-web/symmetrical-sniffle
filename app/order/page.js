@@ -139,7 +139,7 @@ export default function OrderPage() {
     return !placeholders.includes(String(code).trim().toLowerCase());
   };
 
-  // Form state
+  // Form state — shared
   const [countries, setCountries] = useState([]);
   const [services, setServices] = useState([]);
   const [operators, setOperators] = useState([]);
@@ -147,6 +147,9 @@ export default function OrderPage() {
   const [selectedCountry, setSelectedCountry] = useState(null);
   const [selectedService, setSelectedService] = useState(null);
   const [selectedOperator, setSelectedOperator] = useState(null);
+
+  // Server4 extra state
+  const [selectedProvider, setSelectedProvider] = useState(null); // pricelist entry
 
   const [loadingCtry, setLoadingCtry] = useState(false);
   const [loadingSvc, setLoadingSvc] = useState(false);
@@ -167,12 +170,11 @@ export default function OrderPage() {
   // Active orders state
   const [activeOrders, setActiveOrders] = useState([]);
   const [actionLoading, setActionLoading] = useState(null);
-  const cancellingRef = useRef(new Set()); // Guard for multi-order auto-cancel
+  const cancellingRef = useRef(new Set());
   const [now, setNow] = useState(Date.now());
 
   const token = session?.access_token;
   const authHeaders = { Authorization: `Bearer ${token}` };
-  // Helper: always get fresh headers (prevents stale token after auto-refresh)
   const getFreshHeaders = () => ({ Authorization: `Bearer ${sessionRef.current?.access_token || token}` });
 
   // ── On mount & server change ──────────────────────────────────────
@@ -180,19 +182,24 @@ export default function OrderPage() {
     if (!ready) return;
     if (!session) { router.push('/login'); return; }
 
-    loadCountries(selectedServer);
+    // Server3: load countries first; Server4: load services (apps) first
+    if (selectedServer === 'server3') {
+      loadCountries('server3');
+    } else {
+      loadServicesS4();
+    }
     loadActiveOrders();
   }, [ready, session, selectedServer]);
 
   const handleServerChange = (server) => {
     setSelectedServer(server);
-    setSelectedCountry(null); setSelectedService(null); setSelectedOperator(null);
+    setSelectedCountry(null); setSelectedService(null);
+    setSelectedOperator(null); setSelectedProvider(null);
     setCountries([]); setServices([]); setOperators([]);
     setError('');
   };
 
   // ── Auto-poll active orders every 5s ──────────────────────────────
-  // Only poll when there are waiting/expiring orders (not just received ones)
   useEffect(() => {
     const hasPending = activeOrders.some(o => ['waiting', 'expiring'].includes(o.status));
     if (!hasPending) return;
@@ -200,19 +207,12 @@ export default function OrderPage() {
     return () => clearInterval(interval);
   }, [activeOrders]);
 
-  // ── Auto-cancel expired order ───────────────────────────────────────
-  // Saat timer habis, langsung kirim cancel ke server.
-  // Server akan deteksi bahwa order EXPIRED → skip call JasaOTP → langsung refund.
-  // Tidak perlu re-check status karena server sudah ada guard duplikasi.
+  // ── Auto-cancel expired orders ────────────────────────────────────
   const autoCancel = useCallback(async (orderId) => {
     if (cancellingRef.current.has(orderId)) return;
     cancellingRef.current.add(orderId);
-
-    // Langsung hapus dari UI — tidak tampilkan 00:00 spinner lagi
     setActiveOrders(prev => prev.filter(o => o.order_id !== orderId));
-
     try {
-      // ✅ getFreshHeaders() agar token terbaru dipakai (anti stale closure setelah auto-refresh)
       const res = await fetch('/api/orders/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getFreshHeaders() },
@@ -224,23 +224,16 @@ export default function OrderPage() {
         showToast('⏱ Order expired — saldo di-refund otomatis');
       }
       await loadActiveOrders();
-    } catch {
-      // Network error — order tetap hilang dari UI, akan sync saat reload
-    } finally {
-      cancellingRef.current.delete(orderId);
-    }
+    } catch { }
+    finally { cancellingRef.current.delete(orderId); }
   }, [selectedServer]);
 
-
-  // ── Auto-update exact time & Auto-cancel expired orders ───────────
+  // ── Timer & auto-cancel ticker ────────────────────────────────────
   useEffect(() => {
     const timer = setInterval(() => {
       const currentTime = Date.now();
       setNow(currentTime);
-
       activeOrders.forEach(order => {
-        // Only auto-cancel waiting/expiring orders that have NOT received OTP
-        // Guard: skip if already in cancellingRef (prevents double-trigger)
         if (['waiting', 'expiring'].includes(order.status) && !isRealOtp(order.otp_code)) {
           const remainingMs = order.expires_at ? new Date(order.expires_at) - currentTime : 0;
           if (remainingMs <= 0 && !cancellingRef.current.has(order.order_id)) {
@@ -262,27 +255,24 @@ export default function OrderPage() {
           const isRecentSuccess = o.status === 'received' && (Date.now() - new Date(o.created_at).getTime() < 3600000);
           return isPending || isRecentSuccess;
         });
-
         const updatedOrders = await Promise.all(recentOrders.map(async (o) => {
-          // Skip polling for orders currently being auto-cancelled (prevents race condition)
           if (['waiting', 'expiring'].includes(o.status) && !cancellingRef.current.has(o.order_id)) {
             try {
-              const statRes = await fetch(`/api/orders/status?order_id=${o.order_id}&server=${selectedServer}`, { headers: getFreshHeaders() });
+              const statRes = await fetch(`/api/orders/status?order_id=${o.order_id}`, { headers: getFreshHeaders() });
               const statJson = await statRes.json();
-              if (statJson.success && statJson.data) {
-                return { ...o, ...statJson.data };
-              }
+              if (statJson.success && statJson.data) return { ...o, ...statJson.data };
             } catch { }
           }
           return o;
         }));
-
         setActiveOrders(updatedOrders);
       }
     } catch { }
   };
 
-  // ── Load Countries (entry point) ─────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════
+  // SERVER 3 FLOW: Negara → Layanan + Operator
+  // ══════════════════════════════════════════════════════════════════
   const loadCountries = async (server) => {
     const srv = server || selectedServer;
     setLoadingCtry(true); setErrorCtry(false);
@@ -296,7 +286,6 @@ export default function OrderPage() {
     setLoadingCtry(false);
   };
 
-  // ── Country → Load Services ──────────────────────────────────────
   const handleCountryChange = async (countryId) => {
     const country = countries.find(c => String(c.id) === String(countryId));
     setSelectedCountry(country || null);
@@ -305,22 +294,18 @@ export default function OrderPage() {
     setErrorSvc(false); setErrorOp(false);
     if (!country) return;
 
-    // Load services and operators in parallel
     setLoadingSvc(true); setLoadingOp(true);
     try {
-      const res = await fetch(`/api/services?negara=${countryId}&server=${selectedServer}`);
+      const res = await fetch(`/api/services?negara=${countryId}&server=server3`);
       if (!res.ok) throw new Error();
       const data = await res.json();
       if (!data.data?.length) throw new Error();
-      setServices(data.data.map(s => ({
-        ...s,
-        _sub: `${s.price_format} · stok: ${s.stock}`,
-      })));
+      setServices(data.data.map(s => ({ ...s, _sub: `${s.price_format} · stok: ${s.stock}` })));
     } catch { setErrorSvc(true); }
     setLoadingSvc(false);
 
     try {
-      const res = await fetch(`/api/operators?negara=${countryId}&server=${selectedServer}`);
+      const res = await fetch(`/api/operators?negara=${countryId}&server=server3`);
       if (!res.ok) throw new Error();
       const data = await res.json();
       if (!data.data?.length) throw new Error();
@@ -342,6 +327,93 @@ export default function OrderPage() {
   const retryServices = () => selectedCountry && handleCountryChange(selectedCountry.id);
   const retryOperators = () => selectedCountry && handleCountryChange(selectedCountry.id);
 
+  // ══════════════════════════════════════════════════════════════════
+  // SERVER 4 FLOW: Layanan → Negara+Provider → Operator
+  // ══════════════════════════════════════════════════════════════════
+
+  // Step 1: load app list
+  const loadServicesS4 = async () => {
+    setLoadingSvc(true); setErrorSvc(false);
+    try {
+      const res = await fetch('/api/services?server=server4');
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      if (!data.data?.length) throw new Error();
+      setServices(data.data);
+    } catch { setErrorSvc(true); }
+    setLoadingSvc(false);
+  };
+
+  // Step 2: after picking service, load countries with pricelist
+  const handleServiceChangeS4 = async (code) => {
+    const svc = services.find(s => String(s.service_code) === String(code));
+    setSelectedService(svc || null);
+    setSelectedCountry(null); setSelectedProvider(null); setSelectedOperator(null);
+    setCountries([]); setOperators([]);
+    setErrorCtry(false); setErrorOp(false);
+    if (!svc) return;
+
+    setLoadingCtry(true);
+    try {
+      const res = await fetch(`/api/negara?server=server4&service_id=${svc.service_code}`);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      if (!data.data?.length) throw new Error();
+      // Flatten: each country × each provider entry in pricelist
+      const rows = [];
+      data.data.forEach(c => {
+        (c.pricelist || []).forEach(p => {
+          if (p.available) {
+            rows.push({
+              id: `${c.id}::${p.provider_id}`,
+              number_id: c.id,
+              provider_id: p.provider_id,
+              name: `${c.name}`,
+              iso_code: c.iso_code,
+              country_name: c.name,
+              price: p.price,
+              price_format: p.price_format,
+              stock: p.stock,
+              _sub: `${p.price_format} · stok: ${p.stock}`,
+            });
+          }
+        });
+      });
+      if (!rows.length) throw new Error();
+      setCountries(rows);
+    } catch { setErrorCtry(true); }
+    setLoadingCtry(false);
+  };
+
+  // Step 3: after picking country+provider row, load operators
+  const handleCountryChangeS4 = async (rowId) => {
+    const row = countries.find(c => c.id === rowId);
+    setSelectedCountry(row || null);
+    setSelectedProvider(row || null);
+    setSelectedOperator(null); setOperators([]);
+    setErrorOp(false);
+    if (!row) return;
+
+    setLoadingOp(true);
+    try {
+      const res = await fetch(
+        `/api/operators?server=server4&country=${encodeURIComponent(row.country_name)}&provider_id=${row.provider_id}`
+      );
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      if (!data.data?.length) throw new Error();
+      setOperators(data.data);
+    } catch { setErrorOp(true); }
+    setLoadingOp(false);
+  };
+
+  const handleOperatorChangeS4 = (id) => {
+    const op = operators.find(o => String(o.id) === String(id));
+    setSelectedOperator(op || null);
+  };
+
+
+
   // Cek maintenance (23:00 - 00:10 WIB)
   const isMaintenance = () => {
     const now = new Date();
@@ -360,18 +432,35 @@ export default function OrderPage() {
     }
     setOrdering(true); setError('');
     try {
+      const isS4 = selectedServer === 'server4';
+      const body = isS4
+        ? {
+            // Server4 (RuangOTP) params
+            negara: selectedProvider?.number_id,
+            layanan: selectedService.service_code,
+            operator: selectedOperator.name,
+            number_id: selectedProvider?.number_id,
+            provider_id: selectedProvider?.provider_id,
+            operator_id: selectedOperator.id,
+            price: selectedProvider?.price,
+            service_name: selectedService.service_name,
+            country_name: selectedProvider?.country_name,
+            server: 'server4',
+          }
+        : {
+            negara: selectedCountry.id,
+            layanan: selectedService.service_code,
+            operator: selectedOperator.id,
+            price: selectedService.price,
+            service_name: selectedService.service_name,
+            country_name: selectedCountry.name,
+            server: 'server3',
+          };
+
       const res = await fetch('/api/orders/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({
-          negara: selectedCountry.id,
-          layanan: selectedService.service_code,
-          operator: selectedOperator.id,
-          price: selectedService.price,
-          service_name: selectedService.service_name,
-          country_name: selectedCountry.name,
-          server: selectedServer,
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -526,77 +615,133 @@ export default function OrderPage() {
                 </strong>
               </div>
 
-              {/* 1. Country Dropdown (Entry Point) */}
-              <DropdownField
-                label="Negara"
-                placeholder="— Pilih negara —"
-                options={countries}
-                value={selectedCountry?.id || ''}
-                onChange={handleCountryChange}
-                loading={loadingCtry}
-                error={errorCtry}
-                onRetry={loadCountries}
-                disabled={false}
-                keyField="id"
-                labelField="name"
-              />
-
-              {/* 2. Service Dropdown */}
-              <DropdownField
-                label="Layanan / Aplikasi"
-                placeholder="— Pilih aplikasi —"
-                options={services}
-                value={selectedService?.service_code || ''}
-                onChange={handleServiceChange}
-                loading={loadingSvc}
-                error={errorSvc}
-                onRetry={retryServices}
-                disabled={!selectedCountry}
-                keyField="service_code"
-                labelField="service_name"
-              />
-
-              {/* 3. Operator Dropdown */}
-              <DropdownField
-                label="Operator"
-                placeholder="— Pilih operator —"
-                options={operators}
-                value={selectedOperator?.id || ''}
-                onChange={handleOperatorChange}
-                loading={loadingOp}
-                error={errorOp}
-                onRetry={retryOperators}
-                disabled={!selectedCountry}
-                keyField="id"
-                labelField="name"
-              />
+              {selectedServer === 'server3' ? (
+                <>
+                  {/* SERVER 3: Negara → Layanan → Operator */}
+                  <DropdownField
+                    label="Negara"
+                    placeholder="— Pilih negara —"
+                    options={countries}
+                    value={selectedCountry?.id || ''}
+                    onChange={handleCountryChange}
+                    loading={loadingCtry}
+                    error={errorCtry}
+                    onRetry={loadCountries}
+                    disabled={false}
+                    keyField="id"
+                    labelField="name"
+                  />
+                  <DropdownField
+                    label="Layanan / Aplikasi"
+                    placeholder="— Pilih aplikasi —"
+                    options={services}
+                    value={selectedService?.service_code || ''}
+                    onChange={handleServiceChange}
+                    loading={loadingSvc}
+                    error={errorSvc}
+                    onRetry={retryServices}
+                    disabled={!selectedCountry}
+                    keyField="service_code"
+                    labelField="service_name"
+                  />
+                  <DropdownField
+                    label="Operator"
+                    placeholder="— Pilih operator —"
+                    options={operators}
+                    value={selectedOperator?.id || ''}
+                    onChange={handleOperatorChange}
+                    loading={loadingOp}
+                    error={errorOp}
+                    onRetry={retryOperators}
+                    disabled={!selectedCountry}
+                    keyField="id"
+                    labelField="name"
+                  />
+                </>
+              ) : (
+                <>
+                  {/* SERVER 4: Layanan → Negara+Provider → Operator */}
+                  <DropdownField
+                    label="Layanan / Aplikasi"
+                    placeholder="— Pilih aplikasi —"
+                    options={services}
+                    value={selectedService?.service_code || ''}
+                    onChange={handleServiceChangeS4}
+                    loading={loadingSvc}
+                    error={errorSvc}
+                    onRetry={loadServicesS4}
+                    disabled={false}
+                    keyField="service_code"
+                    labelField="service_name"
+                  />
+                  <DropdownField
+                    label="Negara"
+                    placeholder="— Pilih negara —"
+                    options={countries}
+                    value={selectedCountry?.id || ''}
+                    onChange={handleCountryChangeS4}
+                    loading={loadingCtry}
+                    error={errorCtry}
+                    onRetry={() => selectedService && handleServiceChangeS4(selectedService.service_code)}
+                    disabled={!selectedService}
+                    keyField="id"
+                    labelField="name"
+                  />
+                  <DropdownField
+                    label="Operator"
+                    placeholder="— Pilih operator —"
+                    options={operators}
+                    value={selectedOperator?.id || ''}
+                    onChange={handleOperatorChangeS4}
+                    loading={loadingOp}
+                    error={errorOp}
+                    onRetry={() => selectedCountry && handleCountryChangeS4(selectedCountry.id)}
+                    disabled={!selectedCountry}
+                    keyField="id"
+                    labelField="name"
+                  />
+                </>
+              )}
 
               {/* Price summary */}
               {selectedService && selectedOperator && (
                 <div style={{ padding: '14px 16px', background: 'var(--bg-2)', borderRadius: 'var(--radius-sm)', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ color: 'var(--text-2)', fontSize: '0.875rem' }}>Harga per OTP</span>
                   <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--accent)', fontSize: '1.1rem' }}>
-                    {selectedService.price_format || `Rp${Number(selectedService.price).toLocaleString('id-ID')}`}
+                    {selectedServer === 'server4'
+                      ? (selectedProvider?.price_format || `Rp${Number(selectedProvider?.price || 0).toLocaleString('id-ID')}`)
+                      : (selectedService.price_format || `Rp${Number(selectedService.price).toLocaleString('id-ID')}`)}
                   </span>
                 </div>
               )}
 
               {/* Insufficient balance warning */}
-              {selectedService && (profile?.balance || 0) < selectedService.price && (
-                <div className="alert alert-error" style={{ marginBottom: 16 }}>
-                  Saldo tidak cukup. <a href="/deposit" style={{ color: 'var(--accent)' }}>Top up sekarang →</a>
-                </div>
-              )}
+              {(() => {
+                const price = selectedServer === 'server4' ? selectedProvider?.price : selectedService?.price;
+                return price && (profile?.balance || 0) < price ? (
+                  <div className="alert alert-error" style={{ marginBottom: 16 }}>
+                    Saldo tidak cukup. <a href="/deposit" style={{ color: 'var(--accent)' }}>Top up sekarang →</a>
+                  </div>
+                ) : null;
+              })()}
 
               <button
                 className="btn btn-primary btn-full btn-lg"
                 onClick={handleOrder}
-                disabled={ordering || !selectedCountry || !selectedService || !selectedOperator || (profile?.balance || 0) < (selectedService?.price || 0)}>
+                disabled={(() => {
+                  if (ordering || !selectedService || !selectedOperator) return true;
+                  if (selectedServer === 'server4') {
+                    const price = selectedProvider?.price || 0;
+                    return !selectedCountry || (profile?.balance || 0) < price;
+                  }
+                  return !selectedCountry || (profile?.balance || 0) < (selectedService?.price || 0);
+                })()}>
                 {ordering
                   ? <><span className="spinner" style={{ width: 16, height: 16 }}></span> Memesan...</>
                   : 'Beli Nomor'}
               </button>
             </div>
+
 
             {/* ── Right: Active Order / OTP Monitor ── */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

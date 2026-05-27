@@ -13,11 +13,13 @@ export async function GET() {
 
     if (error) throw error;
 
-    // Default: deposit is OPEN if row not found
+    // If row not found, default to OPEN
     const isOpen = !data || data.value === 'true';
     return NextResponse.json({ success: true, data: { deposit_open: isOpen } });
   } catch (err) {
-    // On error, default to open so users aren't blocked
-    return NextResponse.json({ success: true, data: { deposit_open: true } });
+    // On DB error (e.g. table not yet created): default CLOSED for safety
+    // This prevents deposit when admin has intentionally disabled it
+    console.error('[deposit-status] error:', err.message);
+    return NextResponse.json({ success: false, data: { deposit_open: false } });
   }
 }

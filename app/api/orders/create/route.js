@@ -9,7 +9,8 @@ export async function POST(request) {
       throw new Error('UNAUTHORIZED');
     });
 
-    const { negara, layanan, operator, price, service_name, country_name, server } = await request.json();
+    const { negara, layanan, operator, price, service_name, country_name, server,
+            number_id, provider_id, operator_id } = await request.json();
     const selectedServer = server || 'server3';
 
     if (!negara || !layanan || !operator) {
@@ -41,7 +42,9 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Saldo tidak cukup. Silakan deposit terlebih dahulu.' }, { status: 402 });
     }
 
-    const orderData = await createOrder(negara, layanan, operator, selectedServer);
+    const orderData = await createOrder(negara, layanan, operator, selectedServer,
+      { number_id, provider_id, operator_id });
+
     console.log('[JasaOTP createOrder response]', JSON.stringify(orderData));
     if (!orderData.success) {
       let errMsg = orderData.message || 'Terjadi kesalahan pada sistem provider.';
