@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServices, getServicesForCountryServer4 } from '@/lib/otpProvider';
+import { getServices, getServicesServer4 } from '@/lib/otpProvider';
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
@@ -7,25 +7,11 @@ export async function GET(request) {
 
   try {
     if (server === 'server4') {
-      // Server4: requires country name to get services with pricelist/provider
-      const country = searchParams.get('country');
-      if (!country) {
-        return NextResponse.json({ error: 'country required for server4' }, { status: 400 });
-      }
-      const data = await getServicesForCountryServer4(country);
-      if (data.success && data.data) {
-        const markup = parseFloat(process.env.OTP_PRICE_MARKUP || '1.5');
-        data.data = data.data.map(s => ({
-          ...s,
-          price_original: s.price,
-          price: Math.ceil(s.price * markup),
-          price_format: `Rp${Math.ceil(s.price * markup).toLocaleString('id-ID')}`,
-        }));
-      }
+      // Server4: return all apps/services from RuangOTP (no country needed)
+      const data = await getServicesServer4();
       return NextResponse.json(data, {
         headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600' },
       });
-
     }
 
     // Server3: requires negara ID

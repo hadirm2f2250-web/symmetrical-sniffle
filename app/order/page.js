@@ -181,8 +181,12 @@ export default function OrderPage() {
   useEffect(() => {
     if (!ready) return;
     if (!session) { router.push('/login'); return; }
-    // Both servers start by loading countries
-    loadCountries(selectedServer);
+    // Server3: load countries; Server4: load apps/services first
+    if (selectedServer === 'server3') {
+      loadCountries('server3');
+    } else {
+      loadAppsS4();
+    }
     loadActiveOrders();
   }, [ready, session, selectedServer]);
 
@@ -323,42 +327,55 @@ export default function OrderPage() {
   const retryOperators = () => selectedCountry && handleCountryChange(selectedCountry.id);
 
   // ══════════════════════════════════════════════════════════════════
-  // SERVER 4 FLOW: Negara → Layanan → Operator (same order as server3)
+  // SERVER 4 FLOW: Aplikasi → Negara → Operator
   // ══════════════════════════════════════════════════════════════════
 
-  // Step 2: Country selected → load services available for that country
-  const handleCountryChangeS4 = async (countryId) => {
-    const country = countries.find(c => String(c.id) === String(countryId));
-    setSelectedCountry(country || null);
-    setSelectedProvider(null); setSelectedService(null); setSelectedOperator(null);
-    setServices([]); setOperators([]);
-    setErrorSvc(false); setErrorOp(false);
-    if (!country) return;
-
-    setLoadingSvc(true);
+  // Step 1: load apps on mount
+  const loadAppsS4 = async () => {
+    setLoadingCtry(true); setErrorCtry(false); // reuse ctry loading for apps
     try {
-      const res = await fetch(`/api/services?server=server4&country=${encodeURIComponent(country.name)}`);
+      const res = await fetch('/api/services?server=server4');
       if (!res.ok) throw new Error();
       const data = await res.json();
       if (!data.data?.length) throw new Error();
-      setServices(data.data.map(s => ({ ...s, _sub: `${s.price_format} · stok: ${s.stock}` })));
+      setCountries(data.data); // store apps in "countries" slot (step 1 picker)
+    } catch { setErrorCtry(true); }
+    setLoadingCtry(false);
+  };
+
+  // Step 2: App selected → load countries with embedded provider_id
+  const handleAppChangeS4 = async (appCode) => {
+    const app = countries.find(c => String(c.service_code) === String(appCode));
+    setSelectedCountry(app || null); // selectedCountry holds the chosen app
+    setSelectedService(null); setSelectedProvider(null); setSelectedOperator(null);
+    setServices([]); setOperators([]); // services slot will hold countries
+    setErrorSvc(false); setErrorOp(false);
+    if (!app) return;
+
+    setLoadingSvc(true);
+    try {
+      const res = await fetch(`/api/negara?server=server4&service_id=${app.service_code}`);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      if (!data.data?.length) throw new Error();
+      setServices(data.data); // countries are stored in "services" slot
     } catch { setErrorSvc(true); }
     setLoadingSvc(false);
   };
 
-  // Step 3: Service selected → load operators using country_name + provider_id from service
-  const handleServiceChangeS4 = async (code) => {
-    const svc = services.find(s => String(s.service_code) === String(code));
-    setSelectedService(svc || null);
-    setSelectedProvider(svc || null); // provider_id is embedded in service object
+  // Step 3: Country selected → load operators using embedded provider_id
+  const handleCountryChangeS4 = async (countryId) => {
+    const country = services.find(c => String(c.id) === String(countryId));
+    setSelectedService(country || null); // store chosen country in "selectedService"
+    setSelectedProvider(country || null);
     setSelectedOperator(null); setOperators([]);
     setErrorOp(false);
-    if (!svc || !selectedCountry) return;
+    if (!country) return;
 
     setLoadingOp(true);
     try {
       const res = await fetch(
-        `/api/operators?server=server4&country=${encodeURIComponent(selectedCountry.name)}&provider_id=${svc.provider_id}`
+        `/api/operators?server=server4&country=${encodeURIComponent(country.name)}&provider_id=${country.provider_id}`
       );
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -394,28 +411,27 @@ export default function OrderPage() {
       const isS4 = selectedServer === 'server4';
       const body = isS4
         ? {
-            // Server4 (RuangOTP): provider_id & number_id embedded in selectedService
-            negara: selectedService.number_id,
-            layanan: selectedService.service_code,
-            operator: selectedOperator.name,
-            number_id: selectedService.number_id,
-            provider_id: selectedService.provider_id,
-            operator_id: selectedOperator.id,
-            price: selectedService.price,
-            service_name: selectedService.service_name,
-            country_name: selectedCountry.name,
+            // Server4: selectedCountry=app, selectedService=country(with provider_id)
+            negara: selectedService?.id,          // country number_id
+            layanan: selectedCountry?.service_code, // app service_code
+            operator: selectedOperator?.name,
+            number_id: selectedService?.id,
+            provider_id: selectedService?.provider_id,
+            operator_id: selectedOperator?.id,
+            price: selectedService?.price,
+            service_name: selectedCountry?.service_name,
+            country_name: selectedService?.name,
             server: 'server4',
           }
         : {
-            negara: selectedCountry.id,
-            layanan: selectedService.service_code,
-            operator: selectedOperator.id,
-            price: selectedService.price,
-            service_name: selectedService.service_name,
-            country_name: selectedCountry.name,
+            negara: selectedCountry?.id,
+            layanan: selectedService?.service_code,
+            operator: selectedOperator?.id,
+            price: selectedService?.price,
+            service_name: selectedService?.service_name,
+            country_name: selectedCountry?.name,
             server: 'server3',
           };
-
 
       const res = await fetch('/api/orders/create', {
         method: 'POST',
@@ -620,32 +636,32 @@ export default function OrderPage() {
                 </>
               ) : (
                 <>
-                  {/* SERVER 4: Negara → Layanan → Operator */}
+                  {/* SERVER 4: Aplikasi → Negara → Operator */}
+                  <DropdownField
+                    label="Aplikasi"
+                    placeholder="— Pilih aplikasi —"
+                    options={countries}
+                    value={selectedCountry?.service_code || ''}
+                    onChange={handleAppChangeS4}
+                    loading={loadingCtry}
+                    error={errorCtry}
+                    onRetry={loadAppsS4}
+                    disabled={false}
+                    keyField="service_code"
+                    labelField="service_name"
+                  />
                   <DropdownField
                     label="Negara"
                     placeholder="— Pilih negara —"
-                    options={countries}
-                    value={selectedCountry?.id || ''}
-                    onChange={handleCountryChangeS4}
-                    loading={loadingCtry}
-                    error={errorCtry}
-                    onRetry={() => loadCountries('server4')}
-                    disabled={false}
-                    keyField="id"
-                    labelField="name"
-                  />
-                  <DropdownField
-                    label="Layanan / Aplikasi"
-                    placeholder="— Pilih aplikasi —"
                     options={services}
-                    value={selectedService?.service_code || ''}
-                    onChange={handleServiceChangeS4}
+                    value={selectedService?.id || ''}
+                    onChange={handleCountryChangeS4}
                     loading={loadingSvc}
                     error={errorSvc}
-                    onRetry={() => selectedCountry && handleCountryChangeS4(selectedCountry.id)}
+                    onRetry={() => selectedCountry && handleAppChangeS4(selectedCountry.service_code)}
                     disabled={!selectedCountry}
-                    keyField="service_code"
-                    labelField="service_name"
+                    keyField="id"
+                    labelField="name"
                   />
                   <DropdownField
                     label="Operator"
@@ -655,15 +671,15 @@ export default function OrderPage() {
                     onChange={handleOperatorChangeS4}
                     loading={loadingOp}
                     error={errorOp}
-                    onRetry={() => selectedService && handleServiceChangeS4(selectedService.service_code)}
-                    disabled={!selectedCountry}
+                    onRetry={() => selectedService && handleCountryChangeS4(selectedService.id)}
+                    disabled={!selectedService}
                     keyField="id"
                     labelField="name"
                   />
                 </>
               )}
 
-              {/* Price summary — selectedService.price already includes markup for both servers */}
+              {/* Price summary */}
               {selectedService && selectedOperator && (
                 <div style={{ padding: '14px 16px', background: 'var(--bg-2)', borderRadius: 'var(--radius-sm)', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ color: 'var(--text-2)', fontSize: '0.875rem' }}>Harga per OTP</span>
@@ -683,14 +699,8 @@ export default function OrderPage() {
               <button
                 className="btn btn-primary btn-full btn-lg"
                 onClick={handleOrder}
-                disabled={(() => {
-                  if (ordering || !selectedService || !selectedOperator) return true;
-                  if (selectedServer === 'server4') {
-                    const price = selectedProvider?.price || 0;
-                    return !selectedCountry || (profile?.balance || 0) < price;
-                  }
-                  return !selectedCountry || (profile?.balance || 0) < (selectedService?.price || 0);
-                })()}>
+                disabled={ordering || !selectedCountry || !selectedService || !selectedOperator ||
+                  (profile?.balance || 0) < (selectedService?.price || 0)}>
                 {ordering
                   ? <><span className="spinner" style={{ width: 16, height: 16 }}></span> Memesan...</>
                   : 'Beli Nomor'}
