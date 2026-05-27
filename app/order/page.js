@@ -440,12 +440,9 @@ export default function OrderPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        const errMsg = (data.error || '').toLowerCase();
-        if (errMsg.includes('stock') || errMsg.includes('stok') || errMsg.includes('no numbers') || errMsg.includes('out of stock') || errMsg.includes('not available')) {
-          setError('Stok nomor habis untuk operator ini. Coba pilih operator atau negara lain.');
-        } else {
-          setError(data.error || 'Gagal membuat order');
-        }
+        console.error('[order] create failed:', data.error);
+        // Always show generic message — never expose provider name
+        setError('Stok nomor habis untuk pilihan ini. Coba operator atau negara lain.');
         return;
       }
 
@@ -453,11 +450,13 @@ export default function OrderPage() {
       await loadActiveOrders();
       await refreshProfile();
     } catch (e) {
-      setError('Gagal membuat order: ' + e.message);
+      console.error('[order] unhandled:', e.message);
+      setError('Stok nomor habis untuk pilihan ini. Coba operator atau negara lain.');
     } finally {
       setOrdering(false);
     }
   };
+
 
   const handleAction = async (orderId, action) => {
     if (action === 'cancel' && cancellingRef.current.has(orderId)) return; // already cancelling

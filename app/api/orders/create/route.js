@@ -45,13 +45,14 @@ export async function POST(request) {
     const orderData = await createOrder(negara, layanan, operator, selectedServer,
       { number_id, provider_id, operator_id });
 
-    console.log('[JasaOTP createOrder response]', JSON.stringify(orderData));
+    console.log('[createOrder response]', JSON.stringify(orderData));
     if (!orderData.success) {
-      let errMsg = orderData.message || 'Terjadi kesalahan pada sistem provider.';
-      if (typeof errMsg === 'object') {
-        errMsg = 'Gangguan pada server provider, silakan coba beberapa saat lagi.';
-      }
-      return NextResponse.json({ error: errMsg }, { status: 500 });
+      // Log real error internally, show generic message to user
+      console.error('[createOrder] provider error:', orderData.message);
+      return NextResponse.json(
+        { error: 'Stok nomor habis untuk pilihan ini. Coba operator atau negara lain.' },
+        { status: 500 }
+      );
     }
 
     const order = orderData.data;
@@ -98,6 +99,10 @@ export async function POST(request) {
     if (err.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error('[orders/create] unhandled error:', err.message);
+    return NextResponse.json(
+      { error: 'Stok nomor habis untuk pilihan ini. Coba operator atau negara lain.' },
+      { status: 500 }
+    );
   }
 }
