@@ -66,6 +66,8 @@ export default function AdminDashboardPage() {
   const [stats, setStats] = useState(null);
   const [providerBalance, setProviderBalance] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [depositOpen, setDepositOpen] = useState(true);
+  const [depositToggling, setDepositToggling] = useState(false);
 
   useEffect(() => {
     if (!ready) return;
@@ -78,16 +80,35 @@ export default function AdminDashboardPage() {
     setLoading(true);
     const headers = { Authorization: `Bearer ${token}` };
     try {
-      const [statsRes, balRes] = await Promise.all([
+      const [statsRes, balRes, settingsRes] = await Promise.all([
         fetch('/api/admin/stats', { headers }),
         fetch('/api/admin/balance', { headers }),
+        fetch('/api/admin/settings', { headers }),
       ]);
       const sd = await statsRes.json();
       const bd = await balRes.json();
+      const stg = await settingsRes.json();
       if (sd.success) setStats(sd.data);
       if (bd.success) setProviderBalance(bd.data);
+      if (stg.success) setDepositOpen(stg.data?.deposit_open !== 'false');
     } catch {}
     setLoading(false);
+  };
+
+  const handleToggleDeposit = async () => {
+    if (!session || depositToggling) return;
+    setDepositToggling(true);
+    try {
+      const newVal = !depositOpen;
+      const res = await fetch('/api/admin/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ key: 'deposit_open', value: newVal }),
+      });
+      const d = await res.json();
+      if (d.success) setDepositOpen(newVal);
+    } catch {}
+    setDepositToggling(false);
   };
 
   if (!ready || !session) {
@@ -193,8 +214,52 @@ export default function AdminDashboardPage() {
             </div>
           </div>
 
+          {/* Deposit Toggle */}
+          <div className="card" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: 12,
+                background: depositOpen ? 'rgba(0,200,150,0.15)' : 'rgba(230,57,70,0.15)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '1.6rem', flexShrink: 0, transition: 'background 0.3s',
+              }}>
+                {depositOpen ? '🔓' : '🔒'}
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-1)', marginBottom: 4 }}>
+                  Status Deposit
+                </div>
+                <div style={{ fontSize: '0.82rem', color: 'var(--text-3)' }}>
+                  {depositOpen
+                    ? 'Deposit terbuka — user dapat melakukan top up saldo.'
+                    : 'Deposit ditutup — user tidak dapat melakukan top up saldo.'}
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={handleToggleDeposit}
+              disabled={depositToggling || loading}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '10px 20px', borderRadius: 'var(--radius-sm)',
+                border: `1px solid ${depositOpen ? '#e63946' : '#00c896'}`,
+                background: depositOpen ? 'rgba(230,57,70,0.1)' : 'rgba(0,200,150,0.1)',
+                color: depositOpen ? '#e63946' : '#00c896',
+                fontWeight: 700, fontSize: '0.88rem', cursor: depositToggling ? 'not-allowed' : 'pointer',
+                opacity: depositToggling || loading ? 0.6 : 1, transition: 'all 0.2s',
+              }}
+            >
+              {depositToggling
+                ? <><span className="spinner" style={{ width: 14, height: 14, borderColor: 'currentColor', borderTopColor: 'transparent' }} /> Menyimpan...</>
+                : depositOpen ? '🔒 Tutup Deposit' : '🔓 Buka Deposit'
+              }
+            </button>
+          </div>
+
           {/* Quick nav */}
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
+
             {[
               { href:'/admin/users', icon:'👥', title:'Kelola User', desc:'Lihat daftar user & topup saldo' },
               { href:'/admin/orders', icon:'📋', title:'Kelola Order', desc:'Monitor order & refund manual' },

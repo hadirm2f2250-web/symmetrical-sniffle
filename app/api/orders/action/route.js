@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
 import { getAuthUser } from '@/lib/auth';
-import { cancelOrder } from '@/lib/otpProvider';
+import { cancelOrder, doneOrder } from '@/lib/otpProvider';
 
 export async function POST(request) {
   try {
@@ -36,6 +36,11 @@ export async function POST(request) {
       if (['canceled', 'completed'].includes(order.status)) {
         return NextResponse.json({ success: false, error: 'Pesanan sudah dibatalkan atau diselesaikan sebelumnya.' }, { status: 400 });
       }
+      // Notify RuangOTP provider (server4) that we're done
+      const orderServer = order.server || selectedServer;
+      if (orderServer === 'server4') {
+        try { await doneOrder(order_id, orderServer); } catch {}
+      }
       const { data: completedOrder } = await supabase.from('orders')
         .update({ status: 'completed' })
         .eq('order_id', order_id)
@@ -60,17 +65,34 @@ export async function POST(request) {
       const isExpired = order.expires_at && new Date(order.expires_at).getTime() <= now;
 
       // ── JALUR 1: ORDER EXPIRED (waktu habis) ────────────────────────
-      // JasaOTP otomatis handle timeout di sisi mereka.
-      // Kita cukup refund langsung tanpa perlu call API JasaOTP.
       if (isExpired) {
-        console.log(`[cancel] order=${order_id} EXPIRED → skip JasaOTP API, langsung refund`);
+        console.log(`[cancel] order=${order_id} EXPIRED → skip provider API, langsung refund`);
         return await doRefund({ supabase, user, order, order_id, orderServer, reason: 'expired_timeout' });
       }
 
-      // ── JALUR 2: CANCEL MANUAL SEBELUM EXPIRED ──────────────────────
-      // Harus call JasaOTP API karena mereka belum tau harus cancel.
+      // ── JALUR 2A: SERVER 4 (RuangOTP) — bisa cancel kapan saja ──────
+      if (orderServer === 'server4') {
+        const data = await cancelOrder(order_id, orderServer);
+        console.log(`[cancel] order=${order_id} server=server4 RuangOTP response=`, JSON.stringify(data));
 
-      // Guard: JasaOTP butuh minimal 2 menit sebelum bisa cancel
+        const isAlreadyCanceled = !data.success && data.message &&
+          (data.message.toLowerCase().includes('tidak ditemukan') ||
+           data.message.toLowerCase().includes('not found') ||
+           data.message.toLowerCase().includes('canceled') ||
+           data.message.toLowerCase().includes('expired'));
+
+        if (data.success || isAlreadyCanceled) {
+          return await doRefund({
+            supabase, user, order, order_id, orderServer,
+            reason: isAlreadyCanceled ? 'provider_already_canceled' : 'user_manual_cancel',
+            providerMessage: data.message,
+          });
+        }
+        console.warn(`[cancel] FAILED order=${order_id} provider_message=${data.message}`);
+        return NextResponse.json({ success: false, error: data.message || 'Gagal membatalkan pesanan di provider.' });
+      }
+
+      // ── JALUR 2B: SERVER 3 (JasaOTP) — butuh minimal 2 menit ────────
       const ageMs = order.created_at ? now - new Date(order.created_at).getTime() : Infinity;
       if (ageMs < 2 * 60 * 1000) {
         const remainingSec = Math.ceil((2 * 60 * 1000 - ageMs) / 1000);
@@ -94,7 +116,6 @@ export async function POST(request) {
         return NextResponse.json({ success: false, error: data.message || 'Pesanan belum bisa dibatalkan.' }, { status: 400 });
       }
 
-      // Kalau JasaOTP sukses cancel ATAU bilang order tidak ditemukan/timeout (sudah expired di sisi mereka)
       const isAlreadyCanceled = !data.success && data.message &&
         (data.message.toLowerCase().includes('tidak ditemukan') ||
          data.message.toLowerCase().includes('not found') ||
