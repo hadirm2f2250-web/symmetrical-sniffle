@@ -500,3 +500,49 @@ tbody tr:hover { background: var(--bg-2); }
   .list-item { background: var(--bg-card); border-color: var(--border); }
   .feature-card { background: var(--bg-card); border-color: var(--border); }
 }
+
+/* ─── SweetAlert2 Custom Theme ───────────────────────────────────── */
+.swal-dark-popup {
+  border-radius: 14px !important;
+  border: 1px solid var(--border) !important;
+  font-family: var(--font) !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18) !important;
+}
+.swal-dark-popup .swal2-title {
+  font-size: 1.15rem !important;
+  font-weight: 700 !important;
+  color: var(--text-1) !important;
+}
+.swal-dark-popup .swal2-html-container {
+  font-size: 0.875rem !important;
+  color: var(--text-2) !important;
+}
+.swal-dark-popup .swal2-loader {
+  border-color: var(--accent) transparent var(--accent) transparent !important;
+}
+.swal-dark-popup .swal2-timer-progress-bar {
+  background: var(--accent) !important;
+}
+/* Confirm / close button */
+.swal-btn-confirm {
+  background: var(--accent) !important;
+  color: #fff !important;
+  font-family: var(--font) !important;
+  font-weight: 600 !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 10px 24px !important;
+  font-size: 0.9rem !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+.swal-btn-confirm:hover {
+  background: var(--accent-dim) !important;
+}
+/* Success icon */
+.swal2-success-ring { border-color: var(--green) !important; }
+.swal2-success-fix { background: var(--bg-card) !important; }
+.swal2-success-line-tip,
+.swal2-success-line-long { background: var(--green) !important; }
+/* Error icon */
+.swal2-x-mark-line-left,
+.swal2-x-mark-line-right { background: var(--red) !important; }

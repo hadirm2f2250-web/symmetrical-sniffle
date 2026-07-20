@@ -74,6 +74,36 @@ export default function HistoryPage() {
             </div>
           </div>
 
+          {/* Realtime OTP banner */}
+          <a
+            href="https://www.dunianokos.web.id/order"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              gap: 12, marginBottom: 16, padding: '14px 20px',
+              background: 'linear-gradient(90deg, rgba(0,200,150,0.12) 0%, rgba(0,200,150,0.04) 100%)',
+              border: '1px solid rgba(0,200,150,0.35)',
+              borderRadius: 'var(--radius)', textDecoration: 'none', cursor: 'pointer',
+              transition: 'border-color 0.2s',
+            }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
+            onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(0,200,150,0.35)'}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: '1.3rem' }}>⚡</span>
+              <div>
+                <div style={{ fontWeight: 700, color: 'var(--text-1)', fontSize: '0.9rem', marginBottom: 2 }}>
+                  JIKA INGIN MELIHAT REALTIME OTP &amp; CANCEL BISA KLIK DISINI
+                </div>
+                <div style={{ fontSize: '0.77rem', color: 'var(--text-3)' }}>
+                  Pantau OTP masuk secara live, batalkan pesanan, dan kelola order aktif
+                </div>
+              </div>
+            </div>
+            <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '0.85rem', whiteSpace: 'nowrap' }}>Buka →</span>
+          </a>
+
           <div className="card">
             {loading ? (
               <div className="loading-overlay"><div className="spinner"></div> Memuat...</div>

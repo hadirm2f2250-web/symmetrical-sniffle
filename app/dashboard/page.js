@@ -158,9 +158,18 @@ export default function DashboardPage() {
           <div className="card" style={{ marginBottom: 32 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div className="card-title" style={{ fontSize: '1.1rem' }}>Pesanan Aktif</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Link
+                href="/order"
+                className="btn btn-ghost btn-sm"
+                style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+              >
+                📦 Order OTP
+              </Link>
               <button className="btn btn-ghost btn-sm" onClick={handleRefresh} disabled={refreshing} style={{ padding: '6px 12px' }}>
                 {refreshing ? <span className="spinner" style={{ width: 14, height: 14 }}></span> : 'Refresh'}
               </button>
+            </div>
             </div>
             {loading ? (
               <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-3)' }}><span className="spinner"></span></div>
@@ -198,6 +207,36 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
+
+          {/* Realtime OTP banner */}
+          <a
+            href="https://www.dunianokos.web.id/order"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              gap: 12, marginBottom: 32, padding: '14px 20px',
+              background: 'linear-gradient(90deg, rgba(0,200,150,0.12) 0%, rgba(0,200,150,0.04) 100%)',
+              border: '1px solid rgba(0,200,150,0.35)',
+              borderRadius: 'var(--radius)', textDecoration: 'none', cursor: 'pointer',
+              transition: 'border-color 0.2s, background 0.2s',
+            }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
+            onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(0,200,150,0.35)'}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: '1.3rem' }}>⚡</span>
+              <div>
+                <div style={{ fontWeight: 700, color: 'var(--text-1)', fontSize: '0.9rem', marginBottom: 2 }}>
+                  JIKA INGIN MELIHAT REALTIME OTP &amp; CANCEL BISA KLIK DISINI
+                </div>
+                <div style={{ fontSize: '0.77rem', color: 'var(--text-3)' }}>
+                  Pantau OTP masuk secara live, batalkan pesanan, dan kelola order aktif
+                </div>
+              </div>
+            </div>
+            <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '0.85rem', whiteSpace: 'nowrap' }}>Buka →</span>
+          </a>
 
           <div className="grid-2" style={{ gap: 24, alignItems: 'flex-start' }}>
             {/* FAQ Area */}

@@ -56,7 +56,9 @@ export async function POST(request) {
     }
 
     const order = orderData.data;
-    const expiresAt = new Date(Date.now() + order.expires_in_minute * 60 * 1000).toISOString();
+    // Prefer seconds-based expiry (more precise); fall back to minutes for legacy
+    const expirySec = order.expires_in_seconds ?? (order.expires_in_minute * 60) ?? 1490;
+    const expiresAt = new Date(Date.now() + expirySec * 1000).toISOString();
 
     // Insert order FIRST — only deduct balance if insert succeeds
     const { data: dbOrder, error: insertErr } = await supabase.from('orders').insert({

@@ -4,6 +4,13 @@ import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import Sidebar from '@/components/Sidebar';
 import { useProfile } from '@/lib/useProfile';
+import dynamic from 'next/dynamic';
+
+// Lazy-load Swal only on client to avoid SSR issues
+let Swal;
+if (typeof window !== 'undefined') {
+  import('sweetalert2').then(m => { Swal = m.default; });
+}
 
 // ── Custom Dropdown Field Component ────────────────────────────────
 function DropdownField({ label, placeholder, options, value, onChange, loading, error, onRetry, disabled, keyField, labelField }) {
@@ -136,7 +143,49 @@ export default function OrderPage() {
     return !placeholders.includes(String(code).trim().toLowerCase());
   };
 
-  // Form state — shared
+  // ── SweetAlert2 helpers ──────────────────────────────────────────
+  const swalLoading = (title, text = '') => {
+    if (!Swal) return;
+    Swal.fire({
+      title,
+      text,
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+      didOpen: () => Swal.showLoading(),
+      background: 'var(--bg-card)',
+      color: 'var(--text-1)',
+      customClass: { popup: 'swal-dark-popup' },
+    });
+  };
+  const swalSuccess = (title, text = '') => {
+    if (!Swal) return;
+    Swal.fire({
+      icon: 'success',
+      title,
+      text,
+      timer: 3000,
+      timerProgressBar: true,
+      showConfirmButton: false,
+      background: 'var(--bg-card)',
+      color: 'var(--text-1)',
+      iconColor: 'var(--green)',
+      customClass: { popup: 'swal-dark-popup' },
+    });
+  };
+  const swalError = (title, text = '') => {
+    if (!Swal) return;
+    Swal.fire({
+      icon: 'error',
+      title,
+      text,
+      confirmButtonText: 'Tutup',
+      background: 'var(--bg-card)',
+      color: 'var(--text-1)',
+      iconColor: 'var(--red)',
+      customClass: { popup: 'swal-dark-popup', confirmButton: 'swal-btn-confirm' },
+    });
+  };
   const [countries, setCountries] = useState([]);
   const [services, setServices] = useState([]);
   const [operators, setOperators] = useState([]);
@@ -156,13 +205,6 @@ export default function OrderPage() {
   const [errorCtry, setErrorCtry] = useState(false);
   const [errorSvc, setErrorSvc] = useState(false);
   const [errorOp, setErrorOp] = useState(false);
-  const [error, setError] = useState('');
-  const [toast, setToast] = useState('');
-
-  const showToast = (msg) => {
-    setToast(msg);
-    setTimeout(() => setToast(''), 4000);
-  };
 
   // Active orders state
   const [activeOrders, setActiveOrders] = useState([]);
@@ -326,13 +368,15 @@ export default function OrderPage() {
 
   const handleOrder = async () => {
     if (!selectedCountry || !selectedService || !selectedOperator) {
-      setError('Lengkapi semua pilihan terlebih dahulu'); return;
-    }
-    if (isMaintenance()) {
-      setError('Sedang maintenance harian (23:00–00:10 WIB). Coba lagi setelah pukul 00:10 WIB.');
+      swalError('Pilihan Tidak Lengkap', 'Lengkapi semua pilihan (negara, layanan, operator) terlebih dahulu.');
       return;
     }
-    setOrdering(true); setError('');
+    if (isMaintenance()) {
+      swalError('Maintenance', 'Sedang maintenance harian (23:00–00:10 WIB). Coba lagi setelah pukul 00:10 WIB.');
+      return;
+    }
+    setOrdering(true);
+    swalLoading('Sedang cek stok...', 'Mencari nomor yang tersedia untukmu');
     try {
       const body = {
         negara: selectedCountry?.id,
@@ -352,16 +396,16 @@ export default function OrderPage() {
       const data = await res.json();
       if (!res.ok) {
         console.error('[order] create failed:', data.error);
-        setError('Stok nomor habis untuk pilihan ini. Coba layanan atau negara lain.');
+        swalError('Stok Habis', 'Stok nomor habis untuk pilihan ini. Coba layanan atau negara lain.');
         return;
       }
 
-      showToast('🎉 Pembelian nomor berhasil!');
+      swalSuccess('Pembelian Berhasil! 🎉', `Nomor ${data.data?.phone_number || ''} siap menerima OTP`);
       await loadActiveOrders();
       await refreshProfile();
     } catch (e) {
       console.error('[order] unhandled:', e.message);
-      setError('Stok nomor habis untuk pilihan ini. Coba layanan atau negara lain.');
+      swalError('Terjadi Kesalahan', 'Stok nomor habis untuk pilihan ini. Coba layanan atau negara lain.');
     } finally {
       setOrdering(false);
     }
@@ -369,8 +413,12 @@ export default function OrderPage() {
 
 
   const handleAction = async (orderId, action) => {
-    if (action === 'cancel' && cancellingRef.current.has(orderId)) return; // already cancelling
+    if (action === 'cancel' && cancellingRef.current.has(orderId)) return;
     setActionLoading(orderId);
+    swalLoading(
+      action === 'cancel' ? 'Sedang membatalkan...' : 'Memproses...',
+      action === 'cancel' ? 'Mohon tunggu, pesanan sedang dibatalkan' : ''
+    );
     try {
       const res = await fetch('/api/orders/action', {
         method: 'POST',
@@ -381,20 +429,21 @@ export default function OrderPage() {
       if (data.success) {
         if (action === 'cancel') {
           await refreshProfile();
-          showToast('✅ Order dibatalkan & saldo di-refund');
+          swalSuccess('Pesanan Dibatalkan ✅', 'Saldo kamu sudah dikembalikan penuh.');
         }
         await loadActiveOrders();
       } else {
-        showToast('❌ ' + (data.error || data.message || 'Kesalahan server'));
+        swalError('Gagal', data.error || data.message || 'Terjadi kesalahan server');
       }
     } catch {
-      showToast('❌ Terjadi kesalahan jaringan');
+      swalError('Kesalahan Jaringan', 'Tidak bisa terhubung ke server. Periksa koneksi kamu.');
     }
     setActionLoading(null);
   };
 
   const handleComplete = async (orderId) => {
     setActionLoading(orderId);
+    swalLoading('Menyelesaikan pesanan...', '');
     try {
       const res = await fetch('/api/orders/action', {
         method: 'POST',
@@ -403,10 +452,14 @@ export default function OrderPage() {
       });
       const data = await res.json();
       if (data.success) {
-        showToast('✅ Pesanan selesai!');
+        swalSuccess('Pesanan Selesai! ✅', 'Terima kasih telah menggunakan DuniaNokos.');
         await loadActiveOrders();
+      } else {
+        swalError('Gagal Menyelesaikan', data.error || 'Terjadi kesalahan.');
       }
-    } catch { }
+    } catch {
+      swalError('Kesalahan Jaringan', 'Tidak bisa terhubung ke server.');
+    }
     setActionLoading(null);
   };
 
