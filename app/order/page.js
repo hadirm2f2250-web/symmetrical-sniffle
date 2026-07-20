@@ -381,6 +381,8 @@ export default function OrderPage() {
         server: 'smsbower',
         // Dari getPricesV3 — lock ke provider termurah agar harga display = harga aktual
         provider_id: selectedService?.cheapest_provider_id || null,
+        // maxPrice safety net: SMS Bower tidak boleh charge lebih dari harga yang ditampilkan
+        max_price_usd: selectedService?.cheapest_price_usd || null,
       };
 
       const res = await fetch('/api/orders/create', {

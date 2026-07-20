@@ -10,7 +10,7 @@ export async function POST(request) {
     });
 
     const { negara, layanan, operator, price, service_name, country_name, server,
-            number_id, provider_id, operator_id } = await request.json();
+            number_id, provider_id, operator_id, max_price_usd } = await request.json();
     const selectedServer = server || 'server3';
 
     if (!negara || !layanan || !operator) {
@@ -55,7 +55,9 @@ export async function POST(request) {
     }
 
     const orderData = await createOrder(negara, layanan, operator, selectedServer,
-      { number_id, provider_id, operator_id });
+      { number_id, provider_id, operator_id,
+        // maxPrice: SMS Bower tidak akan assign nomor yg lebih mahal dari harga yang ditampilkan
+        maxPrice: max_price_usd ? String(max_price_usd) : undefined });
 
     console.log('[createOrder response]', JSON.stringify(orderData));
     if (!orderData.success) {
