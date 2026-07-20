@@ -17,6 +17,18 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Parameter tidak lengkap' }, { status: 400 });
     }
 
+    // ─── PRICE SANITY CHECK ───────────────────────────────────────────────────
+    // Tolak order jika harga tidak valid (NaN, 0, negatif, atau terlalu kecil)
+    // Ini mencegah kerugian akibat kurs/markup yang belum ter-load (rate cache kosong)
+    const parsedPrice = Number(price);
+    if (!parsedPrice || isNaN(parsedPrice) || parsedPrice < 100) {
+      console.error('[orders/create] INVALID PRICE blocked:', price, '| negara:', negara, '| layanan:', layanan);
+      return NextResponse.json(
+        { error: 'Harga layanan tidak valid. Coba refresh halaman dan pilih ulang.' },
+        { status: 400 }
+      );
+    }
+
     const supabase = getServiceSupabase();
 
     // Check user balance
