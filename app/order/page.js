@@ -181,23 +181,20 @@ export default function OrderPage() {
 
   const [countries, setCountries] = useState([]);
   const [services, setServices] = useState([]);
-  const [operators, setOperators] = useState([]);
+  const [prices, setPrices] = useState([]);
 
   const [selectedCountry, setSelectedCountry] = useState(null);
   const [selectedService, setSelectedService] = useState(null);
-  const [selectedOperator, setSelectedOperator] = useState(null);
-
-  // Server4 extra state
-  const [selectedProvider, setSelectedProvider] = useState(null); // pricelist entry
+  const [selectedPrice, setSelectedPrice] = useState(null); // entry harga terpilih
 
   const [loadingCtry, setLoadingCtry] = useState(false);
   const [loadingSvc, setLoadingSvc] = useState(false);
-  const [loadingOp, setLoadingOp] = useState(false);
+  const [loadingPrice, setLoadingPrice] = useState(false);
   const [ordering, setOrdering] = useState(false);
 
   const [errorCtry, setErrorCtry] = useState(false);
   const [errorSvc, setErrorSvc] = useState(false);
-  const [errorOp, setErrorOp] = useState(false);
+  const [errorPrice, setErrorPrice] = useState(false);
 
   // Active orders state
   const [activeOrders, setActiveOrders] = useState([]);
@@ -293,7 +290,7 @@ export default function OrderPage() {
     } catch { }
   };
 
-  // ── SMS Bower Flow: Negara → Layanan → Operator (always 'any') ────────────────────
+  // ── SMS Bower Flow: Negara → Layanan → Harga ────────────────────────────────
   const loadCountries = async () => {
     setLoadingCtry(true); setErrorCtry(false);
     try {
@@ -309,9 +306,9 @@ export default function OrderPage() {
   const handleCountryChange = async (countryId) => {
     const country = countries.find(c => String(c.id) === String(countryId));
     setSelectedCountry(country || null);
-    setSelectedService(null); setSelectedOperator(null);
-    setServices([]); setOperators([]);
-    setErrorSvc(false); setErrorOp(false);
+    setSelectedService(null); setSelectedPrice(null);
+    setServices([]); setPrices([]);
+    setErrorSvc(false); setErrorPrice(false);
     if (!country) return;
 
     // Load services for this country
@@ -324,31 +321,35 @@ export default function OrderPage() {
       setServices(data.data);
     } catch { setErrorSvc(true); }
     setLoadingSvc(false);
+  };
 
-    // Load operators (always returns 'any' for SMS Bower)
-    setLoadingOp(true);
+  const handleServiceChange = async (code) => {
+    const svc = services.find(s => String(s.service_code) === String(code));
+    setSelectedService(svc || null);
+    setSelectedPrice(null);
+    setPrices([]);
+    setErrorPrice(false);
+    if (!svc || !selectedCountry) return;
+
+    // Load list harga untuk service+country ini
+    setLoadingPrice(true);
     try {
-      const res = await fetch('/api/operators');
+      const res = await fetch(`/api/harga?service=${svc.service_code}&negara=${selectedCountry.id}`);
       if (!res.ok) throw new Error();
       const data = await res.json();
       if (!data.data?.length) throw new Error();
-      setOperators(data.data);
-    } catch { setErrorOp(true); }
-    setLoadingOp(false);
+      setPrices(data.data);
+    } catch { setErrorPrice(true); }
+    setLoadingPrice(false);
   };
 
-  const handleServiceChange = (code) => {
-    const svc = services.find(s => String(s.service_code) === String(code));
-    setSelectedService(svc || null);
-  };
-
-  const handleOperatorChange = (id) => {
-    const op = operators.find(o => String(o.id) === String(id));
-    setSelectedOperator(op || null);
+  const handlePriceChange = (id) => {
+    const entry = prices.find(p => String(p.id) === String(id));
+    setSelectedPrice(entry || null);
   };
 
   const retryServices = () => selectedCountry && handleCountryChange(selectedCountry.id);
-  const retryOperators = () => selectedCountry && handleCountryChange(selectedCountry.id);
+  const retryPrices   = () => selectedService && selectedCountry && handleServiceChange(selectedService.service_code);
 
 
   // Cek maintenance (23:00 - 00:10 WIB)
@@ -360,8 +361,8 @@ export default function OrderPage() {
   };
 
   const handleOrder = async () => {
-    if (!selectedCountry || !selectedService || !selectedOperator) {
-      swalError('Pilihan Tidak Lengkap', 'Lengkapi semua pilihan (negara, layanan, operator) terlebih dahulu.');
+    if (!selectedCountry || !selectedService || !selectedPrice) {
+      swalError('Pilihan Tidak Lengkap', 'Lengkapi semua pilihan (negara, layanan, harga) terlebih dahulu.');
       return;
     }
     if (isMaintenance()) {
@@ -374,15 +375,15 @@ export default function OrderPage() {
       const body = {
         negara: selectedCountry?.id,
         layanan: selectedService?.service_code,
-        operator: selectedOperator?.id || 'any',
-        price: selectedService?.price,
+        operator: 'any',
+        price: selectedPrice?.price,
         service_name: selectedService?.service_name,
         country_name: selectedCountry?.name,
         server: 'smsbower',
-        // Dari getPricesV3 — lock ke provider termurah agar harga display = harga aktual
-        provider_id: selectedService?.cheapest_provider_id || null,
-        // maxPrice safety net: SMS Bower tidak boleh charge lebih dari harga yang ditampilkan
-        max_price_usd: selectedService?.cheapest_price_usd || null,
+        // Lock ke provider yang dipilih user — harga akurat
+        provider_id: selectedPrice?.provider_id || null,
+        // maxPrice safety net
+        max_price_usd: selectedPrice?.price_usd || null,
       };
 
       const res = await fetch('/api/orders/create', {
@@ -393,7 +394,7 @@ export default function OrderPage() {
       const data = await res.json();
       if (!res.ok) {
         console.error('[order] create failed:', data.error);
-        swalError('Stok Habis', 'Stok nomor habis untuk pilihan ini. Coba layanan atau negara lain.');
+        swalError('Stok Habis', 'Stok nomor habis untuk pilihan ini. Coba harga atau negara lain.');
         return;
       }
 
@@ -402,7 +403,7 @@ export default function OrderPage() {
       await refreshProfile();
     } catch (e) {
       console.error('[order] unhandled:', e.message);
-      swalError('Terjadi Kesalahan', 'Stok nomor habis untuk pilihan ini. Coba layanan atau negara lain.');
+      swalError('Terjadi Kesalahan', 'Stok nomor habis untuk pilihan ini. Coba harga atau negara lain.');
     } finally {
       setOrdering(false);
     }
@@ -480,7 +481,7 @@ export default function OrderPage() {
         <main className="page-content">
           <div className="page-header">
             <h1>Order OTP</h1>
-            <p>Pilih negara, layanan, dan operator untuk membeli nomor virtual</p>
+            <p>Pilih negara, layanan, dan harga untuk membeli nomor virtual</p>
           </div>
 
           <div className="grid-2" style={{ gap: 24, alignItems: 'flex-start' }}>
@@ -548,31 +549,31 @@ export default function OrderPage() {
                 labelField="service_name"
               />
               <DropdownField
-                label="Operator"
-                placeholder="— Pilih operator —"
-                options={operators}
-                value={selectedOperator?.id || ''}
-                onChange={handleOperatorChange}
-                loading={loadingOp}
-                error={errorOp}
-                onRetry={retryOperators}
-                disabled={!selectedCountry}
+                label="Pilih Harga"
+                placeholder="— Pilih harga —"
+                options={prices}
+                value={selectedPrice?.id || ''}
+                onChange={handlePriceChange}
+                loading={loadingPrice}
+                error={errorPrice}
+                onRetry={retryPrices}
+                disabled={!selectedService}
                 keyField="id"
-                labelField="name"
+                labelField="label"
               />
 
               {/* Price summary */}
-              {selectedService && selectedOperator && (
+              {selectedPrice && (
                 <div style={{ padding: '14px 16px', background: 'var(--bg-2)', borderRadius: 'var(--radius-sm)', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ color: 'var(--text-2)', fontSize: '0.875rem' }}>Harga per OTP</span>
                   <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--accent)', fontSize: '1.1rem' }}>
-                    {selectedService.price_format || `Rp${Number(selectedService.price).toLocaleString('id-ID')}`}
+                    {selectedPrice.price_format || `Rp${Number(selectedPrice.price).toLocaleString('id-ID')}`}
                   </span>
                 </div>
               )}
 
               {/* Insufficient balance warning */}
-              {selectedService && (profile?.balance || 0) < (selectedService?.price || 0) && (
+              {selectedPrice && (profile?.balance || 0) < (selectedPrice?.price || 0) && (
                 <div className="alert alert-error" style={{ marginBottom: 16 }}>
                   Saldo tidak cukup. <a href="/deposit" style={{ color: 'var(--accent)' }}>Top up sekarang →</a>
                 </div>
@@ -581,8 +582,8 @@ export default function OrderPage() {
               <button
                 className="btn btn-primary btn-full btn-lg"
                 onClick={handleOrder}
-                disabled={ordering || !selectedCountry || !selectedService || !selectedOperator ||
-                  (profile?.balance || 0) < (selectedService?.price || 0)}>
+                disabled={ordering || !selectedCountry || !selectedService || !selectedPrice ||
+                  (profile?.balance || 0) < (selectedPrice?.price || 0)}>
                 {ordering
                   ? <><span className="spinner" style={{ width: 16, height: 16 }}></span> Memesan...</>
                   : 'Beli Nomor'}
@@ -688,7 +689,7 @@ export default function OrderPage() {
               <div className="card">
                 <div className="card-title" style={{ marginBottom: 12, fontSize: '0.9rem' }}>💡 Tips</div>
                 {[
-                  'Pilih "any" operator untuk peluang sukses terbesar',
+                  'Pilih harga termurah dengan stok terbanyak untuk peluang sukses terbesar',
                   'OTP biasanya masuk dalam 30 detik – 2 menit',
                   'Batalkan jika OTP tidak masuk dalam 5 menit — saldo refund otomatis',
                   'Coba negara berbeda jika stok habis',
