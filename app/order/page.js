@@ -4,13 +4,10 @@ import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import Sidebar from '@/components/Sidebar';
 import { useProfile } from '@/lib/useProfile';
-import dynamic from 'next/dynamic';
 
-// Lazy-load Swal only on client to avoid SSR issues
-let Swal;
-if (typeof window !== 'undefined') {
-  import('sweetalert2').then(m => { Swal = m.default; });
-}
+// SweetAlert2 import — 'use client' guarantees browser-only execution, no SSR conflict
+import Swal from 'sweetalert2';
+import 'sweetalert2/dist/sweetalert2.min.css';
 
 // ── Custom Dropdown Field Component ────────────────────────────────
 function DropdownField({ label, placeholder, options, value, onChange, loading, error, onRetry, disabled, keyField, labelField }) {
@@ -145,47 +142,43 @@ export default function OrderPage() {
 
   // ── SweetAlert2 helpers ──────────────────────────────────────────
   const swalLoading = (title, text = '') => {
-    if (!Swal) return;
     Swal.fire({
       title,
-      text,
+      html: text ? `<span style="color:var(--text-2);font-size:0.875rem">${text}</span>` : '',
       allowOutsideClick: false,
       allowEscapeKey: false,
       showConfirmButton: false,
       didOpen: () => Swal.showLoading(),
-      background: 'var(--bg-card)',
-      color: 'var(--text-1)',
+      background: '#ffffff',
+      color: '#0f172a',
       customClass: { popup: 'swal-dark-popup' },
     });
   };
   const swalSuccess = (title, text = '') => {
-    if (!Swal) return;
     Swal.fire({
       icon: 'success',
       title,
-      text,
+      html: text ? `<span style="color:var(--text-2);font-size:0.875rem">${text}</span>` : '',
       timer: 3000,
       timerProgressBar: true,
       showConfirmButton: false,
-      background: 'var(--bg-card)',
-      color: 'var(--text-1)',
-      iconColor: 'var(--green)',
+      background: '#ffffff',
+      color: '#0f172a',
       customClass: { popup: 'swal-dark-popup' },
     });
   };
   const swalError = (title, text = '') => {
-    if (!Swal) return;
     Swal.fire({
       icon: 'error',
       title,
-      text,
+      html: text ? `<span style="color:var(--text-2);font-size:0.875rem">${text}</span>` : '',
       confirmButtonText: 'Tutup',
-      background: 'var(--bg-card)',
-      color: 'var(--text-1)',
-      iconColor: 'var(--red)',
+      background: '#ffffff',
+      color: '#0f172a',
       customClass: { popup: 'swal-dark-popup', confirmButton: 'swal-btn-confirm' },
     });
   };
+
   const [countries, setCountries] = useState([]);
   const [services, setServices] = useState([]);
   const [operators, setOperators] = useState([]);
@@ -477,18 +470,6 @@ export default function OrderPage() {
     <>
       <Navbar user={session} profile={profile} />
 
-      {/* Toast Notification */}
-      {toast && (
-        <div style={{
-          position: 'fixed', top: 80, right: 24, zIndex: 9999,
-          background: 'var(--bg-card)', border: '1px solid var(--accent)', color: 'var(--text-1)',
-          padding: '12px 20px', borderRadius: 'var(--radius-sm)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-          animation: 'slideInRight 0.3s cubic-bezier(0.4, 0, 0.2, 1)', fontSize: '0.9rem', fontWeight: 500,
-          display: 'flex', alignItems: 'center', gap: 10
-        }}>
-          {toast}
-        </div>
-      )}
 
       <div className="page-with-sidebar">
         <Sidebar role={profile?.role} />
@@ -526,7 +507,6 @@ export default function OrderPage() {
                 <div>⚠ Jika muncul error &quot;Gangguan server provider&quot;, artinya <strong>stok habis</strong> — coba operator/negara lain.</div>
               </div>
 
-              {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>⚠ {error}</div>}
 
               {/* Saldo */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--bg-2)', borderRadius: 'var(--radius-sm)', marginBottom: 20 }}>
