@@ -379,6 +379,8 @@ export default function OrderPage() {
         service_name: selectedService?.service_name,
         country_name: selectedCountry?.name,
         server: 'smsbower',
+        // Dari getPricesV3 — lock ke provider termurah agar harga display = harga aktual
+        provider_id: selectedService?.cheapest_provider_id || null,
       };
 
       const res = await fetch('/api/orders/create', {
