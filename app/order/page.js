@@ -129,9 +129,6 @@ export default function OrderPage() {
   const sessionRef = useRef(null);
   useEffect(() => { sessionRef.current = session; }, [session]);
 
-  // Server state
-  const [selectedServer, setSelectedServer] = useState('server3');
-
   // Helper: cek apakah otp_code benar-benar OTP (bukan placeholder)
   const isRealOtp = (code) => {
     if (!code || code === '-') return false;
@@ -177,26 +174,13 @@ export default function OrderPage() {
   const authHeaders = { Authorization: `Bearer ${token}` };
   const getFreshHeaders = () => ({ Authorization: `Bearer ${sessionRef.current?.access_token || token}` });
 
-  // ── On mount & server change ──────────────────────────────────────
+  // ── On mount: load countries ───────────────────────────────────────────
   useEffect(() => {
     if (!ready) return;
     if (!session) { router.push('/login'); return; }
-    // Server3: load countries; Server4: load apps/services first
-    if (selectedServer === 'server3') {
-      loadCountries('server3');
-    } else {
-      loadAppsS4();
-    }
+    loadCountries();
     loadActiveOrders();
-  }, [ready, session, selectedServer]);
-
-  const handleServerChange = (server) => {
-    setSelectedServer(server);
-    setSelectedCountry(null); setSelectedService(null);
-    setSelectedOperator(null); setSelectedProvider(null);
-    setCountries([]); setServices([]); setOperators([]);
-    setError('');
-  };
+  }, [ready, session]);
 
   // ── Auto-poll active orders every 5s ──────────────────────────────
   useEffect(() => {
@@ -215,7 +199,7 @@ export default function OrderPage() {
       const res = await fetch('/api/orders/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getFreshHeaders() },
-        body: JSON.stringify({ order_id: orderId, status: 'cancel', server: selectedServer }),
+        body: JSON.stringify({ order_id: orderId, status: 'cancel' }),
       });
       const data = await res.json();
       if (data.success) {
@@ -225,7 +209,7 @@ export default function OrderPage() {
       await loadActiveOrders();
     } catch { }
     finally { cancellingRef.current.delete(orderId); }
-  }, [selectedServer]);
+  }, []);
 
   // ── Timer & auto-cancel ticker ────────────────────────────────────
   useEffect(() => {
@@ -264,19 +248,21 @@ export default function OrderPage() {
           }
           return o;
         }));
-        setActiveOrders(updatedOrders);
+        // Remove orders that have been canceled or expired during polling
+        const stillActive = updatedOrders.filter(o =>
+          ['waiting', 'expiring'].includes(o.status) ||
+          (o.status === 'received' && Date.now() - new Date(o.created_at).getTime() < 3600000)
+        );
+        setActiveOrders(stillActive);
       }
     } catch { }
   };
 
-  // ══════════════════════════════════════════════════════════════════
-  // SERVER 3 FLOW: Negara → Layanan + Operator
-  // ══════════════════════════════════════════════════════════════════
-  const loadCountries = async (server) => {
-    const srv = server || selectedServer;
+  // ── SMS Bower Flow: Negara → Layanan → Operator (always 'any') ────────────────────
+  const loadCountries = async () => {
     setLoadingCtry(true); setErrorCtry(false);
     try {
-      const res = await fetch(`/api/negara?server=${srv}`);
+      const res = await fetch('/api/negara');
       if (!res.ok) throw new Error();
       const data = await res.json();
       if (!data.data?.length) throw new Error();
@@ -293,18 +279,21 @@ export default function OrderPage() {
     setErrorSvc(false); setErrorOp(false);
     if (!country) return;
 
-    setLoadingSvc(true); setLoadingOp(true);
+    // Load services for this country
+    setLoadingSvc(true);
     try {
-      const res = await fetch(`/api/services?negara=${countryId}&server=server3`);
+      const res = await fetch(`/api/services?negara=${countryId}`);
       if (!res.ok) throw new Error();
       const data = await res.json();
       if (!data.data?.length) throw new Error();
-      setServices(data.data.map(s => ({ ...s, _sub: `${s.price_format} · stok: ${s.stock}` })));
+      setServices(data.data);
     } catch { setErrorSvc(true); }
     setLoadingSvc(false);
 
+    // Load operators (always returns 'any' for SMS Bower)
+    setLoadingOp(true);
     try {
-      const res = await fetch(`/api/operators?negara=${countryId}&server=server3`);
+      const res = await fetch('/api/operators');
       if (!res.ok) throw new Error();
       const data = await res.json();
       if (!data.data?.length) throw new Error();
@@ -326,69 +315,6 @@ export default function OrderPage() {
   const retryServices = () => selectedCountry && handleCountryChange(selectedCountry.id);
   const retryOperators = () => selectedCountry && handleCountryChange(selectedCountry.id);
 
-  // ══════════════════════════════════════════════════════════════════
-  // SERVER 4 FLOW: Aplikasi → Negara → Operator
-  // ══════════════════════════════════════════════════════════════════
-
-  // Step 1: load apps on mount
-  const loadAppsS4 = async () => {
-    setLoadingCtry(true); setErrorCtry(false); // reuse ctry loading for apps
-    try {
-      const res = await fetch('/api/services?server=server4');
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      if (!data.data?.length) throw new Error();
-      setCountries(data.data); // store apps in "countries" slot (step 1 picker)
-    } catch { setErrorCtry(true); }
-    setLoadingCtry(false);
-  };
-
-  // Step 2: App selected → load countries with embedded provider_id
-  const handleAppChangeS4 = async (appCode) => {
-    const app = countries.find(c => String(c.service_code) === String(appCode));
-    setSelectedCountry(app || null); // selectedCountry holds the chosen app
-    setSelectedService(null); setSelectedProvider(null); setSelectedOperator(null);
-    setServices([]); setOperators([]); // services slot will hold countries
-    setErrorSvc(false); setErrorOp(false);
-    if (!app) return;
-
-    setLoadingSvc(true);
-    try {
-      const res = await fetch(`/api/negara?server=server4&service_id=${app.service_code}`);
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      if (!data.data?.length) throw new Error();
-      setServices(data.data); // countries are stored in "services" slot
-    } catch { setErrorSvc(true); }
-    setLoadingSvc(false);
-  };
-
-  // Step 3: Country selected → load operators using embedded provider_id
-  const handleCountryChangeS4 = async (countryId) => {
-    const country = services.find(c => String(c.id) === String(countryId));
-    setSelectedService(country || null); // store chosen country in "selectedService"
-    setSelectedProvider(country || null);
-    setSelectedOperator(null); setOperators([]);
-    setErrorOp(false);
-    if (!country) return;
-
-    setLoadingOp(true);
-    try {
-      const res = await fetch(
-        `/api/operators?server=server4&country=${encodeURIComponent(country.name)}&provider_id=${country.provider_id}`
-      );
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      if (!data.data?.length) throw new Error();
-      setOperators(data.data);
-    } catch { setErrorOp(true); }
-    setLoadingOp(false);
-  };
-
-  const handleOperatorChangeS4 = (id) => {
-    const op = operators.find(o => String(o.id) === String(id));
-    setSelectedOperator(op || null);
-  };
 
   // Cek maintenance (23:00 - 00:10 WIB)
   const isMaintenance = () => {
@@ -408,30 +334,15 @@ export default function OrderPage() {
     }
     setOrdering(true); setError('');
     try {
-      const isS4 = selectedServer === 'server4';
-      const body = isS4
-        ? {
-            // Server4: selectedCountry=app, selectedService=country(with provider_id)
-            negara: selectedService?.id,          // country number_id
-            layanan: selectedCountry?.service_code, // app service_code
-            operator: selectedOperator?.name,
-            number_id: selectedService?.id,
-            provider_id: selectedService?.provider_id,
-            operator_id: selectedOperator?.id,
-            price: selectedService?.price,
-            service_name: selectedCountry?.service_name,
-            country_name: selectedService?.name,
-            server: 'server4',
-          }
-        : {
-            negara: selectedCountry?.id,
-            layanan: selectedService?.service_code,
-            operator: selectedOperator?.id,
-            price: selectedService?.price,
-            service_name: selectedService?.service_name,
-            country_name: selectedCountry?.name,
-            server: 'server3',
-          };
+      const body = {
+        negara: selectedCountry?.id,
+        layanan: selectedService?.service_code,
+        operator: selectedOperator?.id || 'any',
+        price: selectedService?.price,
+        service_name: selectedService?.service_name,
+        country_name: selectedCountry?.name,
+        server: 'smsbower',
+      };
 
       const res = await fetch('/api/orders/create', {
         method: 'POST',
@@ -441,8 +352,7 @@ export default function OrderPage() {
       const data = await res.json();
       if (!res.ok) {
         console.error('[order] create failed:', data.error);
-        // Always show generic message — never expose provider name
-        setError('Stok nomor habis untuk pilihan ini. Coba operator atau negara lain.');
+        setError('Stok nomor habis untuk pilihan ini. Coba layanan atau negara lain.');
         return;
       }
 
@@ -451,7 +361,7 @@ export default function OrderPage() {
       await refreshProfile();
     } catch (e) {
       console.error('[order] unhandled:', e.message);
-      setError('Stok nomor habis untuk pilihan ini. Coba operator atau negara lain.');
+      setError('Stok nomor habis untuk pilihan ini. Coba layanan atau negara lain.');
     } finally {
       setOrdering(false);
     }
@@ -465,7 +375,7 @@ export default function OrderPage() {
       const res = await fetch('/api/orders/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ order_id: orderId, status: action, server: selectedServer }),
+        body: JSON.stringify({ order_id: orderId, status: action, server: 'smsbower' }),
       });
       const data = await res.json();
       if (data.success) {
@@ -489,7 +399,7 @@ export default function OrderPage() {
       const res = await fetch('/api/orders/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ order_id: orderId, status: 'complete', server: selectedServer }),
+        body: JSON.stringify({ order_id: orderId, status: 'complete', server: 'smsbower' }),
       });
       const data = await res.json();
       if (data.success) {
@@ -541,32 +451,15 @@ export default function OrderPage() {
             <div className="card">
               <div className="card-title" style={{ marginBottom: 20 }}>🛒 Form Order</div>
 
-              {/* Server Picker */}
-              <div style={{ marginBottom: 16 }}>
-                <label className="form-label" style={{ marginBottom: 8 }}>Server</label>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {[{ id: 'server3', label: 'Server 3' }, { id: 'server4', label: 'Server 4' }].map(srv => (
-                    <button
-                      key={srv.id}
-                      type="button"
-                      onClick={() => handleServerChange(srv.id)}
-                      style={{
-                        flex: 1, padding: '10px 14px',
-                        background: selectedServer === srv.id ? 'var(--accent-glow)' : 'var(--bg-2)',
-                        border: `1.5px solid ${selectedServer === srv.id ? 'var(--accent)' : 'var(--border)'}`,
-                        borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-                        color: selectedServer === srv.id ? 'var(--accent)' : 'var(--text-2)',
-                        fontSize: '0.85rem', fontWeight: selectedServer === srv.id ? 600 : 400,
-                        fontFamily: 'var(--font)',
-                        transition: 'all 0.15s ease',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                      }}
-                    >
-                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: selectedServer === srv.id ? 'var(--green)' : 'var(--text-3)', display: 'inline-block' }}></span>
-                      {srv.label}
-                    </button>
-                  ))}
-                </div>
+              {/* Server info badge — generic, tidak ekspos nama provider */}
+              <div style={{
+                background: 'var(--accent-glow)', border: '1px solid var(--accent)',
+                borderRadius: 'var(--radius-sm)', padding: '8px 14px',
+                marginBottom: 16, fontSize: '0.8rem', color: 'var(--accent)',
+                display: 'flex', alignItems: 'center', gap: 8,
+              }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--green)', display: 'inline-block' }}></span>
+                <strong>Server</strong> — Online
               </div>
 
               {/* Info notices */}
@@ -590,93 +483,46 @@ export default function OrderPage() {
                 </strong>
               </div>
 
-              {selectedServer === 'server3' ? (
-                <>
-                  {/* SERVER 3: Negara → Layanan → Operator */}
-                  <DropdownField
-                    label="Negara"
-                    placeholder="— Pilih negara —"
-                    options={countries}
-                    value={selectedCountry?.id || ''}
-                    onChange={handleCountryChange}
-                    loading={loadingCtry}
-                    error={errorCtry}
-                    onRetry={loadCountries}
-                    disabled={false}
-                    keyField="id"
-                    labelField="name"
-                  />
-                  <DropdownField
-                    label="Layanan / Aplikasi"
-                    placeholder="— Pilih aplikasi —"
-                    options={services}
-                    value={selectedService?.service_code || ''}
-                    onChange={handleServiceChange}
-                    loading={loadingSvc}
-                    error={errorSvc}
-                    onRetry={retryServices}
-                    disabled={!selectedCountry}
-                    keyField="service_code"
-                    labelField="service_name"
-                  />
-                  <DropdownField
-                    label="Operator"
-                    placeholder="— Pilih operator —"
-                    options={operators}
-                    value={selectedOperator?.id || ''}
-                    onChange={handleOperatorChange}
-                    loading={loadingOp}
-                    error={errorOp}
-                    onRetry={retryOperators}
-                    disabled={!selectedCountry}
-                    keyField="id"
-                    labelField="name"
-                  />
-                </>
-              ) : (
-                <>
-                  {/* SERVER 4: Aplikasi → Negara → Operator */}
-                  <DropdownField
-                    label="Aplikasi"
-                    placeholder="— Pilih aplikasi —"
-                    options={countries}
-                    value={selectedCountry?.service_code || ''}
-                    onChange={handleAppChangeS4}
-                    loading={loadingCtry}
-                    error={errorCtry}
-                    onRetry={loadAppsS4}
-                    disabled={false}
-                    keyField="service_code"
-                    labelField="service_name"
-                  />
-                  <DropdownField
-                    label="Negara"
-                    placeholder="— Pilih negara —"
-                    options={services}
-                    value={selectedService?.id || ''}
-                    onChange={handleCountryChangeS4}
-                    loading={loadingSvc}
-                    error={errorSvc}
-                    onRetry={() => selectedCountry && handleAppChangeS4(selectedCountry.service_code)}
-                    disabled={!selectedCountry}
-                    keyField="id"
-                    labelField="name"
-                  />
-                  <DropdownField
-                    label="Operator"
-                    placeholder="— Pilih operator —"
-                    options={operators}
-                    value={selectedOperator?.id || ''}
-                    onChange={handleOperatorChangeS4}
-                    loading={loadingOp}
-                    error={errorOp}
-                    onRetry={() => selectedService && handleCountryChangeS4(selectedService.id)}
-                    disabled={!selectedService}
-                    keyField="id"
-                    labelField="name"
-                  />
-                </>
-              )}
+              {/* SMS Bower single flow: Negara → Layanan → Operator */}
+              <DropdownField
+                label="Negara"
+                placeholder="— Pilih negara —"
+                options={countries}
+                value={selectedCountry?.id || ''}
+                onChange={handleCountryChange}
+                loading={loadingCtry}
+                error={errorCtry}
+                onRetry={loadCountries}
+                disabled={false}
+                keyField="id"
+                labelField="name"
+              />
+              <DropdownField
+                label="Layanan / Aplikasi"
+                placeholder="— Pilih aplikasi —"
+                options={services}
+                value={selectedService?.service_code || ''}
+                onChange={handleServiceChange}
+                loading={loadingSvc}
+                error={errorSvc}
+                onRetry={retryServices}
+                disabled={!selectedCountry}
+                keyField="service_code"
+                labelField="service_name"
+              />
+              <DropdownField
+                label="Operator"
+                placeholder="— Pilih operator —"
+                options={operators}
+                value={selectedOperator?.id || ''}
+                onChange={handleOperatorChange}
+                loading={loadingOp}
+                error={errorOp}
+                onRetry={retryOperators}
+                disabled={!selectedCountry}
+                keyField="id"
+                labelField="name"
+              />
 
               {/* Price summary */}
               {selectedService && selectedOperator && (
@@ -765,11 +611,28 @@ export default function OrderPage() {
                             style={{ width: '100%' }}>
                             ✅ Pesanan Selesai
                           </button>
-                        ) : (
-                          <button className="btn btn-danger btn-sm" onClick={() => handleAction(order.order_id, 'cancel')} disabled={actionLoading === order.order_id}>
-                            ✕ Batalkan
-                          </button>
-                        )}
+                        ) : (() => {
+                          // Hitung usia order untuk lockout 2 menit
+                          const orderAgeMs = order.created_at ? now - new Date(order.created_at).getTime() : Infinity;
+                          const LOCK_MS = 2 * 60 * 1000; // 2 menit
+                          const isLocked = orderAgeMs < LOCK_MS;
+                          const lockRemainSec = isLocked ? Math.ceil((LOCK_MS - orderAgeMs) / 1000) : 0;
+                          return (
+                            <button
+                              className="btn btn-danger btn-sm"
+                              onClick={() => !isLocked && handleAction(order.order_id, 'cancel')}
+                              disabled={actionLoading === order.order_id || isLocked}
+                              title={isLocked ? `Bisa dibatalkan dalam ${lockRemainSec} detik` : 'Batalkan pesanan'}
+                              style={{ opacity: isLocked ? 0.55 : 1, cursor: isLocked ? 'not-allowed' : 'pointer' }}
+                            >
+                              {actionLoading === order.order_id
+                                ? <><span className="spinner" style={{ width: 12, height: 12 }} /> Membatalkan...</>
+                                : isLocked
+                                  ? `⏳ ${lockRemainSec}d lagi`
+                                  : '✕ Batalkan'}
+                            </button>
+                          );
+                        })()}
                       </div>
                     </div>
                   );

@@ -13,17 +13,13 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Akses ditolak.' }, { status: 403 });
     }
 
-    // Fetch balance from both servers
-    const [s3, s4] = await Promise.all([
-      getProviderBalance('server3'),
-      getProviderBalance('server4'),
-    ]);
+    // Fetch balance from SMS Bower
+    const sb = await getProviderBalance('smsbower');
 
     return NextResponse.json({
       success: true,
       data: {
-        server3: s3.success ? s3.data : null,
-        server4: s4.success ? s4.data : null,
+        smsbower: sb.success ? sb.data : null,
       },
     });
   } catch (err) {

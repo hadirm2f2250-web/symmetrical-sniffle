@@ -1,35 +1,27 @@
 import { NextResponse } from 'next/server';
-import { getServices, getServicesServer4 } from '@/lib/otpProvider';
+import { getServices } from '@/lib/otpProvider';
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
-  const server = searchParams.get('server') || 'server3';
+  const negara = searchParams.get('negara');
 
   try {
-    if (server === 'server4') {
-      // Server4: return all apps/services from RuangOTP (no country needed)
-      const data = await getServicesServer4();
-      return NextResponse.json(data, {
-        headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600' },
-      });
-    }
-
-    // Server3: requires negara ID
-    const negara = searchParams.get('negara');
-    if (!negara) {
-      return NextResponse.json({ error: 'negara required' }, { status: 400 });
-    }
     const markup = parseFloat(process.env.OTP_PRICE_MARKUP || '1.5');
-    const data = await getServices(negara, 'server3');
+    const data = await getServices(negara, 'smsbower');
+
+    // Apply markup to prices (already applied in getServicesForCountrySmsBower,
+    // but keep this for safety in case raw prices slip through)
     if (data.success && data.data) {
       data.data = data.data.map(svc => ({
         ...svc,
-        price_original: svc.price,
-        price: Math.ceil(svc.price * markup),
-        price_format: `Rp${Math.ceil(svc.price * markup).toLocaleString('id-ID')}`,
+        // Only apply markup if price_format not already set
+        price_format: svc.price_format || `Rp${Math.ceil((svc.price || 0) * markup).toLocaleString('id-ID')}`,
       }));
     }
-    return NextResponse.json(data);
+
+    return NextResponse.json(data, {
+      headers: { 'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300' },
+    });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

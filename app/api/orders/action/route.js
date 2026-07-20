@@ -26,9 +26,9 @@ export async function POST(request) {
     if (orderErr || !order) return NextResponse.json({ error: 'Order tidak ditemukan' }, { status: 404 });
     if (order.user_id !== user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-    // JasaOTP only supports cancel, not resend
+    // SMS Bower: resend not exposed (use cancel + reorder)
     if (status === 'resend') {
-      return NextResponse.json({ success: false, error: 'Server ini tidak mendukung permintaan OTP ulang. Silakan batalkan dan order baru.' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'Permintaan OTP ulang tidak didukung. Silakan batalkan dan order baru.' }, { status: 400 });
     }
 
     // ── Mark as completed (user confirms OTP received) ──────────────────
@@ -36,11 +36,8 @@ export async function POST(request) {
       if (['canceled', 'completed'].includes(order.status)) {
         return NextResponse.json({ success: false, error: 'Pesanan sudah dibatalkan atau diselesaikan sebelumnya.' }, { status: 400 });
       }
-      // Notify RuangOTP provider (server4) that we're done
-      const orderServer = order.server || selectedServer;
-      if (orderServer === 'server4') {
-        try { await doneOrder(order_id, orderServer); } catch {}
-      }
+      // Notify SMS Bower that activation is confirmed (status=6)
+      try { await doneOrder(order_id); } catch {}
       const { data: completedOrder } = await supabase.from('orders')
         .update({ status: 'completed' })
         .eq('order_id', order_id)
@@ -60,53 +57,20 @@ export async function POST(request) {
         return NextResponse.json({ success: false, error: 'Order ini sudah selesai atau menerima OTP, tidak dapat dibatalkan.' }, { status: 400 });
       }
 
-      const orderServer = order.server || selectedServer;
       const now = Date.now();
       const isExpired = order.expires_at && new Date(order.expires_at).getTime() <= now;
 
-      // ── JALUR 1: ORDER EXPIRED (waktu habis) ────────────────────────
+      // ── JALUR 1: ORDER EXPIRED (waktu habis) ─────────────────────────
       if (isExpired) {
         console.log(`[cancel] order=${order_id} EXPIRED → skip provider API, langsung refund`);
-        return await doRefund({ supabase, user, order, order_id, orderServer, reason: 'expired_timeout' });
+        return await doRefund({ supabase, user, order, order_id, reason: 'expired_timeout' });
       }
 
-      // ── JALUR 2A: SERVER 4 (RuangOTP) — bisa cancel kapan saja ──────
-      if (orderServer === 'server4') {
-        const data = await cancelOrder(order_id, orderServer);
-        console.log(`[cancel] order=${order_id} server=server4 RuangOTP response=`, JSON.stringify(data));
+      // ── JALUR 2: SMS Bower — setStatus(8) ────────────────────────────
+      const data = await cancelOrder(order_id);
+      console.log(`[cancel] order=${order_id} SmsBower response=`, JSON.stringify(data));
 
-        const isAlreadyCanceled = !data.success && data.message &&
-          (data.message.toLowerCase().includes('tidak ditemukan') ||
-           data.message.toLowerCase().includes('not found') ||
-           data.message.toLowerCase().includes('canceled') ||
-           data.message.toLowerCase().includes('expired'));
-
-        if (data.success || isAlreadyCanceled) {
-          return await doRefund({
-            supabase, user, order, order_id, orderServer,
-            reason: isAlreadyCanceled ? 'provider_already_canceled' : 'user_manual_cancel',
-            providerMessage: data.message,
-          });
-        }
-        console.warn(`[cancel] FAILED order=${order_id} provider_message=${data.message}`);
-        return NextResponse.json({ success: false, error: data.message || 'Gagal membatalkan pesanan di provider.' });
-      }
-
-      // ── JALUR 2B: SERVER 3 (JasaOTP) — butuh minimal 2 menit ────────
-      const ageMs = order.created_at ? now - new Date(order.created_at).getTime() : Infinity;
-      if (ageMs < 2 * 60 * 1000) {
-        const remainingSec = Math.ceil((2 * 60 * 1000 - ageMs) / 1000);
-        return NextResponse.json({
-          success: false,
-          error: `Pesanan belum bisa dibatalkan. Tunggu ${remainingSec} detik lagi (minimal 2 menit setelah order).`,
-        }, { status: 400 });
-      }
-
-      // Call JasaOTP cancel API
-      const data = await cancelOrder(order_id, orderServer);
-      console.log(`[cancel] order=${order_id} server=${orderServer} JasaOTP response=`, JSON.stringify(data));
-
-      // Jika JasaOTP reject karena timing (belum 2 menit versi mereka) — kembalikan error
+      // EARLY_CANCEL_DENIED: SMS Bower sends this if < 2 min since order
       const isEarlyCancel = !data.success && data.message &&
         (data.message.toLowerCase().includes('belum bisa') ||
          data.message.toLowerCase().includes('early_cancel') ||
@@ -118,20 +82,19 @@ export async function POST(request) {
 
       const isAlreadyCanceled = !data.success && data.message &&
         (data.message.toLowerCase().includes('tidak ditemukan') ||
+         data.message.toLowerCase().includes('no_activation') ||
          data.message.toLowerCase().includes('not found') ||
-         data.message.toLowerCase().includes('time out') ||
-         data.message.toLowerCase().includes('timeout') ||
+         data.message.toLowerCase().includes('canceled') ||
          data.message.toLowerCase().includes('expired'));
 
       if (data.success || isAlreadyCanceled) {
         return await doRefund({
-          supabase, user, order, order_id, orderServer,
+          supabase, user, order, order_id,
           reason: isAlreadyCanceled ? 'provider_already_canceled' : 'user_manual_cancel',
           providerMessage: data.message,
         });
       }
 
-      // JasaOTP tolak cancel dengan alasan lain — kembalikan error ke user
       console.warn(`[cancel] FAILED order=${order_id} provider_message=${data.message}`);
       return NextResponse.json({ success: false, error: data.message || 'Gagal membatalkan pesanan di provider.' });
     }
@@ -146,7 +109,7 @@ export async function POST(request) {
 }
 
 // ── Helper: lakukan refund ke user ─────────────────────────────────────────
-async function doRefund({ supabase, user, order, order_id, orderServer, reason, providerMessage }) {
+async function doRefund({ supabase, user, order, order_id, reason, providerMessage }) {
   // Guard: cek apakah refund sudah pernah diproses sebelumnya
   const { data: existingRefund } = await supabase
     .from('transactions')
@@ -193,7 +156,7 @@ async function doRefund({ supabase, user, order, order_id, orderServer, reason, 
       order_id,
       reason,
       provider_message: providerMessage || null,
-      server: orderServer,
+      server: 'smsbower',
     },
   });
 

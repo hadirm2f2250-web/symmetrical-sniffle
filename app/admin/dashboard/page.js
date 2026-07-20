@@ -68,6 +68,10 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [depositOpen, setDepositOpen] = useState(true);
   const [depositToggling, setDepositToggling] = useState(false);
+  const [rates, setRates] = useState({ usd_to_idr: 16000, otp_price_markup: 1.5 });
+  const [ratesInput, setRatesInput] = useState({ usd_to_idr: '', otp_price_markup: '' });
+  const [ratesSaving, setRatesSaving] = useState(false);
+  const [ratesMsg, setRatesMsg] = useState('');
 
   useEffect(() => {
     if (!ready) return;
@@ -80,17 +84,23 @@ export default function AdminDashboardPage() {
     setLoading(true);
     const headers = { Authorization: `Bearer ${token}` };
     try {
-      const [statsRes, balRes, settingsRes] = await Promise.all([
+      const [statsRes, balRes, settingsRes, ratesRes] = await Promise.all([
         fetch('/api/admin/stats', { headers }),
         fetch('/api/admin/balance', { headers }),
         fetch('/api/admin/settings', { headers }),
+        fetch('/api/admin/rates', { headers }),
       ]);
-      const sd = await statsRes.json();
-      const bd = await balRes.json();
+      const sd  = await statsRes.json();
+      const bd  = await balRes.json();
       const stg = await settingsRes.json();
-      if (sd.success) setStats(sd.data);
-      if (bd.success) setProviderBalance(bd.data);
+      const rt  = await ratesRes.json();
+      if (sd.success)  setStats(sd.data);
+      if (bd.success)  setProviderBalance(bd.data);
       if (stg.success) setDepositOpen(stg.data?.deposit_open !== 'false');
+      if (rt.success)  {
+        setRates(rt.data);
+        setRatesInput({ usd_to_idr: String(rt.data.usd_to_idr), otp_price_markup: String(rt.data.otp_price_markup) });
+      }
     } catch {}
     setLoading(false);
   };
@@ -109,6 +119,29 @@ export default function AdminDashboardPage() {
       if (d.success) setDepositOpen(newVal);
     } catch {}
     setDepositToggling(false);
+  };
+
+  const handleSaveRates = async () => {
+    if (!session || ratesSaving) return;
+    setRatesSaving(true); setRatesMsg('');
+    try {
+      const res = await fetch('/api/admin/rates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          usd_to_idr:       parseFloat(ratesInput.usd_to_idr),
+          otp_price_markup: parseFloat(ratesInput.otp_price_markup),
+        }),
+      });
+      const d = await res.json();
+      if (d.success) {
+        setRatesMsg('✅ ' + d.message);
+        setRates({ usd_to_idr: parseFloat(ratesInput.usd_to_idr), otp_price_markup: parseFloat(ratesInput.otp_price_markup) });
+      } else {
+        setRatesMsg('❌ ' + (d.error || 'Gagal menyimpan'));
+      }
+    } catch { setRatesMsg('❌ Kesalahan jaringan'); }
+    setRatesSaving(false);
   };
 
   if (!ready || !session) {
@@ -184,29 +217,28 @@ export default function AdminDashboardPage() {
               <div className="card-title" style={{ marginBottom:16, fontSize:'0.9rem' }}>⚡ Saldo Provider</div>
               {loading ? (
                 <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-                  {[0,1].map(i => <div key={i} style={{ height:48, background:'var(--bg-2)', borderRadius:8, animation:'pulse 1.5s infinite' }} />)}
+                  {[0].map(i => <div key={i} style={{ height:48, background:'var(--bg-2)', borderRadius:8, animation:'pulse 1.5s infinite' }} />)}
                 </div>
-              ) : providerBalance ? (
+              ) : providerBalance?.smsbower ? (
                 <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                  {['server3','server4'].map(key => {
-                    const srv = providerBalance[key];
-                    if (!srv) return null;
+                  {(() => {
+                    const srv = providerBalance.smsbower;
                     return (
-                      <div key={key} style={{
+                      <div style={{
                         display:'flex', justifyContent:'space-between', alignItems:'center',
                         padding:'12px 14px', background:'var(--bg-2)', borderRadius:'var(--radius-sm)',
                         border:'1px solid var(--border)',
                       }}>
                         <div>
-                          <div style={{ fontSize:'0.75rem', color:'var(--text-3)', marginBottom:2 }}>{srv.email || key}</div>
-                          <div style={{ fontSize:'0.8rem', color:'var(--text-2)' }}>{srv.username}</div>
+                          <div style={{ fontSize:'0.75rem', color:'var(--text-3)', marginBottom:2 }}>SMS Bower</div>
+                          <div style={{ fontSize:'0.8rem', color:'var(--text-2)' }}>{srv.email || srv.username}</div>
                         </div>
                         <div style={{ fontFamily:'var(--mono)', fontWeight:700, color:'var(--accent)', fontSize:'1rem' }}>
                           {srv.formated}
                         </div>
                       </div>
                     );
-                  })}
+                  })()}
                 </div>
               ) : (
                 <div style={{ color:'var(--text-3)', fontSize:'0.85rem' }}>Gagal memuat saldo provider</div>
@@ -254,6 +286,83 @@ export default function AdminDashboardPage() {
                 ? <><span className="spinner" style={{ width: 14, height: 14, borderColor: 'currentColor', borderTopColor: 'transparent' }} /> Menyimpan...</>
                 : depositOpen ? '🔒 Tutup Deposit' : '🔓 Buka Deposit'
               }
+            </button>
+          </div>
+
+          {/* Rate Setting */}
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-title" style={{ marginBottom: 16, fontSize: '0.9rem' }}>💱 Pengaturan Kurs & Markup</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 14 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-3)', marginBottom: 6, fontWeight: 500 }}>
+                  Kurs USD → IDR
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text-3)' }}>$1 =</span>
+                  <input
+                    type="number"
+                    value={ratesInput.usd_to_idr}
+                    onChange={e => setRatesInput(v => ({ ...v, usd_to_idr: e.target.value }))}
+                    placeholder="17945"
+                    style={{
+                      flex: 1, background: 'var(--bg-2)', border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-sm)', padding: '8px 12px',
+                      color: 'var(--text-1)', fontFamily: 'var(--mono)', fontSize: '0.9rem',
+                    }}
+                  />
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text-3)' }}>IDR</span>
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-3)', marginTop: 4 }}>
+                  Aktif: <strong style={{ color: 'var(--accent)', fontFamily: 'var(--mono)' }}>Rp{rates.usd_to_idr.toLocaleString('id-ID')}</strong>
+                </div>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-3)', marginBottom: 6, fontWeight: 500 }}>
+                  Markup Harga
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={ratesInput.otp_price_markup}
+                    onChange={e => setRatesInput(v => ({ ...v, otp_price_markup: e.target.value }))}
+                    placeholder="1.7"
+                    style={{
+                      flex: 1, background: 'var(--bg-2)', border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-sm)', padding: '8px 12px',
+                      color: 'var(--text-1)', fontFamily: 'var(--mono)', fontSize: '0.9rem',
+                    }}
+                  />
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text-3)' }}>×</span>
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-3)', marginTop: 4 }}>
+                  Aktif: <strong style={{ color: 'var(--accent)', fontFamily: 'var(--mono)' }}>{rates.otp_price_markup}×</strong>
+                  &nbsp;·&nbsp; Contoh $0.05 → <strong style={{ color: 'var(--accent)' }}>Rp{Math.ceil(0.05 * rates.usd_to_idr * rates.otp_price_markup).toLocaleString('id-ID')}</strong>
+                </div>
+              </div>
+            </div>
+            {ratesMsg && (
+              <div style={{
+                fontSize: '0.82rem', padding: '8px 12px', borderRadius: 'var(--radius-sm)',
+                background: ratesMsg.startsWith('✅') ? 'rgba(0,200,150,0.1)' : 'rgba(230,57,70,0.1)',
+                color: ratesMsg.startsWith('✅') ? 'var(--green)' : '#e63946',
+                marginBottom: 12,
+              }}>{ratesMsg}</div>
+            )}
+            <button
+              onClick={handleSaveRates}
+              disabled={ratesSaving}
+              style={{
+                padding: '9px 20px', borderRadius: 'var(--radius-sm)',
+                background: 'var(--accent)', border: 'none',
+                color: '#fff', fontWeight: 700, fontSize: '0.85rem',
+                cursor: ratesSaving ? 'not-allowed' : 'pointer',
+                opacity: ratesSaving ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: 8,
+              }}
+            >
+              {ratesSaving
+                ? <><span className="spinner" style={{ width: 13, height: 13, borderColor: '#fff', borderTopColor: 'transparent' }} /> Menyimpan...</>
+                : '💾 Simpan Kurs'}
             </button>
           </div>
 

@@ -39,15 +39,17 @@ export async function GET(request) {
     const data = await getOrderStatus(order_id, orderServer);
 
     if (data.success) {
-      const updatePayload = { status: data.data.status };
+      let updatePayload;
 
-      // Hanya simpan otp_code kalau benar-benar OTP (bukan placeholder)
       if (data.data.status === 'received' && data.data.otp_code && data.data.otp_code !== '-') {
-        updatePayload.otp_code = data.data.otp_code;
-        updatePayload.status = 'received';
+        // OTP masuk — simpan kode dan tandai received
+        updatePayload = { otp_code: data.data.otp_code, status: 'received' };
+      } else if (data.data.status === 'canceled') {
+        // Provider membatalkan (timeout/no stock) — tandai canceled di DB
+        updatePayload = { status: 'canceled', otp_code: null };
       } else {
-        updatePayload.otp_code = null;
-        updatePayload.status = 'waiting';
+        // Masih menunggu OTP
+        updatePayload = { otp_code: null, status: 'waiting' };
       }
 
       // CRITICAL: Only update if order is STILL waiting/expiring (not canceled by another request)
