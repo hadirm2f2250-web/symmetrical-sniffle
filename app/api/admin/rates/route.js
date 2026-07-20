@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
 import { getAuthUser } from '@/lib/auth';
-import { setRateCache } from '@/lib/otpProvider';
+import { setRateCache, clearPriceCache } from '@/lib/otpProvider';
 
 // GET: baca kurs & markup saat ini
 export async function GET(request) {
@@ -21,12 +21,15 @@ export async function GET(request) {
 
     const map = Object.fromEntries((rows || []).map(r => [r.key, r.value]));
 
+    const usdToIdr = parseFloat(map.usd_to_idr || process.env.USD_TO_IDR || '16000');
+    const markup   = parseFloat(map.otp_price_markup || process.env.OTP_PRICE_MARKUP || '1.5');
+
+    // Seed rate cache dari DB agar getMarkup/getUsdToIdr selalu pakai nilai terbaru
+    setRateCache(usdToIdr, markup);
+
     return NextResponse.json({
       success: true,
-      data: {
-        usd_to_idr: parseFloat(map.usd_to_idr || process.env.USD_TO_IDR || '16000'),
-        otp_price_markup: parseFloat(map.otp_price_markup || process.env.OTP_PRICE_MARKUP || '1.5'),
-      },
+      data: { usd_to_idr: usdToIdr, otp_price_markup: markup },
     });
   } catch (err) {
     if (err.message === 'UNAUTHORIZED') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -64,6 +67,9 @@ export async function POST(request) {
 
     // Update in-memory rate cache (langsung berlaku tanpa restart)
     setRateCache(usdRate, markup);
+
+    // Hapus semua cache harga layanan agar langsung dihitung ulang dengan kurs baru
+    clearPriceCache();
 
     console.log(`[admin/rates] updated usd_to_idr=${usdRate} markup=${markup} by user=${user.id}`);
 

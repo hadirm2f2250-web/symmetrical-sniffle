@@ -1,26 +1,28 @@
 import { NextResponse } from 'next/server';
-import { getServices } from '@/lib/otpProvider';
+import { getServices, setRateCache } from '@/lib/otpProvider';
+import { getServiceSupabase } from '@/lib/supabase';
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const negara = searchParams.get('negara');
 
   try {
-    const markup = parseFloat(process.env.OTP_PRICE_MARKUP || '1.5');
+    // ── Selalu baca kurs terbaru dari DB sebelum hitung harga ──
+    const supabase = getServiceSupabase();
+    const { data: rows } = await supabase
+      .from('settings')
+      .select('key, value')
+      .in('key', ['usd_to_idr', 'otp_price_markup']);
+    const map = Object.fromEntries((rows || []).map(r => [r.key, r.value]));
+    const usdToIdr = parseFloat(map.usd_to_idr || process.env.USD_TO_IDR || '16000');
+    const markup   = parseFloat(map.otp_price_markup || process.env.OTP_PRICE_MARKUP || '1.5');
+    // Seed in-memory cache dengan nilai DB terbaru (satu process ini)
+    setRateCache(usdToIdr, markup);
+
     const data = await getServices(negara, 'smsbower');
 
-    // Apply markup to prices (already applied in getServicesForCountrySmsBower,
-    // but keep this for safety in case raw prices slip through)
-    if (data.success && data.data) {
-      data.data = data.data.map(svc => ({
-        ...svc,
-        // Only apply markup if price_format not already set
-        price_format: svc.price_format || `Rp${Math.ceil((svc.price || 0) * markup).toLocaleString('id-ID')}`,
-      }));
-    }
-
     return NextResponse.json(data, {
-      headers: { 'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300' },
+      headers: { 'Cache-Control': 'no-store' }, // jangan cache — harga harus selalu fresh
     });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
