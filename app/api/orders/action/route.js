@@ -19,7 +19,7 @@ export async function POST(request) {
     // Verify the order belongs to this user
     const { data: order, error: orderErr } = await supabase
       .from('orders')
-      .select('price, user_id, status, server, created_at, expires_at')
+      .select('price, user_id, status, server, created_at, expires_at, otp_code')
       .eq('order_id', order_id)
       .single();
 
@@ -52,8 +52,12 @@ export async function POST(request) {
 
     // ── Cancel flow ──────────────────────────────────────────────────────
     if (status === 'cancel') {
-      // Jangan bisa cancel kalau sudah selesai/received/canceled
-      if (!['waiting', 'expiring'].includes(order.status)) {
+      // Cek apakah status 'received' tapi OTP kosong/tanda '-' (OTP gagal diterima)
+      const otpIsEmpty = !order.otp_code || order.otp_code === '-' || order.otp_code.trim() === '';
+      const isReceivedButEmpty = order.status === 'received' && otpIsEmpty;
+
+      // Jangan bisa cancel kalau sudah selesai/received (dengan OTP valid)/canceled
+      if (!['waiting', 'expiring'].includes(order.status) && !isReceivedButEmpty) {
         return NextResponse.json({ success: false, error: 'Order ini sudah selesai atau menerima OTP, tidak dapat dibatalkan.' }, { status: 400 });
       }
 
@@ -95,6 +99,16 @@ export async function POST(request) {
         });
       }
 
+      // Jika status 'received' tapi OTP kosong (tidak valid) — tetap refund meski provider sudah mark aktif
+      if (isReceivedButEmpty) {
+        console.warn(`[cancel] received-but-no-otp order=${order_id}, forcing refund despite provider response: ${data.message}`);
+        return await doRefund({
+          supabase, user, order, order_id,
+          reason: 'received_invalid_otp',
+          providerMessage: data.message,
+        });
+      }
+
       console.warn(`[cancel] FAILED order=${order_id} provider_message=${data.message}`);
       return NextResponse.json({ success: false, error: data.message || 'Gagal membatalkan pesanan di provider.' });
     }
@@ -124,12 +138,12 @@ async function doRefund({ supabase, user, order, order_id, reason, providerMessa
     return NextResponse.json({ success: false, error: 'Refund sudah diproses sebelumnya.' }, { status: 400 });
   }
 
-  // Atomic update status — hanya jika masih waiting/expiring
+  // Atomic update status — hanya jika masih waiting/expiring/received-tanpa-OTP
   const { data: updatedOrder, error: updateErr } = await supabase
     .from('orders')
     .update({ status: 'canceled' })
     .eq('order_id', order_id)
-    .in('status', ['waiting', 'expiring'])
+    .in('status', ['waiting', 'expiring', 'received'])
     .select()
     .maybeSingle();
 
