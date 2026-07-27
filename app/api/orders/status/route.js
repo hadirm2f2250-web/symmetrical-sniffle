@@ -18,9 +18,9 @@ export async function GET(request) {
 
     const supabase = getServiceSupabase();
 
-    // Verify the order belongs to this user
+    // Verify the order belongs to this user + fetch price for potential refund
     const { data: orderRow } = await supabase
-      .from('orders').select('user_id, server').eq('order_id', order_id).single();
+      .from('orders').select('user_id, server, price').eq('order_id', order_id).single();
     if (!orderRow || orderRow.user_id !== user.id) {
       return NextResponse.json({ error: 'Order tidak ditemukan' }, { status: 404 });
     }
@@ -39,24 +39,78 @@ export async function GET(request) {
     const data = await getOrderStatus(order_id, orderServer);
 
     if (data.success) {
-      let updatePayload;
-
       if (data.data.status === 'received' && data.data.otp_code && data.data.otp_code !== '-') {
         // OTP masuk — simpan kode dan tandai received
-        updatePayload = { otp_code: data.data.otp_code, status: 'received' };
+        await supabase.from('orders')
+          .update({ otp_code: data.data.otp_code, status: 'received' })
+          .eq('order_id', order_id)
+          .in('status', ['waiting', 'expiring']);
+
       } else if (data.data.status === 'canceled') {
-        // Provider membatalkan (timeout/no stock) — tandai canceled di DB
-        updatePayload = { status: 'canceled', otp_code: null };
+        // ── PROVIDER CANCELED → refund saldo (atomic, idempotent) ──────
+        // Guard: cek apakah refund sudah pernah diproses untuk order ini
+        const { data: existingRefund } = await supabase
+          .from('transactions')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('type', 'refund')
+          .filter('metadata->>order_id', 'eq', order_id)
+          .maybeSingle();
+
+        if (!existingRefund) {
+          // Atomic update status — hanya jika masih waiting/expiring
+          const { data: updatedOrder } = await supabase
+            .from('orders')
+            .update({ status: 'canceled', otp_code: null })
+            .eq('order_id', order_id)
+            .in('status', ['waiting', 'expiring'])
+            .select()
+            .maybeSingle();
+
+          if (updatedOrder) {
+            // Atomic increment saldo via RPC
+            const { error: rpcErr } = await supabase.rpc('increment_balance', {
+              uid: user.id,
+              amt: orderRow.price,
+            });
+
+            if (rpcErr) {
+              // Rollback status agar tidak ada order canceled tanpa refund
+              await supabase.from('orders').update({ status: 'waiting' }).eq('order_id', order_id);
+              console.error('[status-poll] increment_balance RPC failed:', rpcErr);
+            } else {
+              // Catat transaksi refund
+              await supabase.from('transactions').insert({
+                user_id: user.id,
+                type: 'refund',
+                amount: orderRow.price,
+                status: 'success',
+                metadata: {
+                  order_id,
+                  reason: 'provider_auto_canceled',
+                  provider_message: 'Provider canceled during status poll',
+                  server: 'smsbower',
+                },
+              });
+              console.log(`[status-poll] REFUND SUCCESS order=${order_id} Rp${orderRow.price} reason=provider_auto_canceled`);
+            }
+          }
+        } else {
+          // Refund sudah ada, pastikan status tetap canceled
+          await supabase.from('orders')
+            .update({ status: 'canceled', otp_code: null })
+            .eq('order_id', order_id)
+            .in('status', ['waiting', 'expiring']);
+          console.log(`[status-poll] order=${order_id} refund already exists, just updating status`);
+        }
+
       } else {
         // Masih menunggu OTP
-        updatePayload = { otp_code: null, status: 'waiting' };
+        await supabase.from('orders')
+          .update({ otp_code: null, status: 'waiting' })
+          .eq('order_id', order_id)
+          .in('status', ['waiting', 'expiring']);
       }
-
-      // CRITICAL: Only update if order is STILL waiting/expiring (not canceled by another request)
-      await supabase.from('orders')
-        .update(updatePayload)
-        .eq('order_id', order_id)
-        .in('status', ['waiting', 'expiring']);
     }
 
     return NextResponse.json(data);
