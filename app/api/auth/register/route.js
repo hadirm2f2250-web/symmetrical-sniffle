@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { getServiceSupabase } from '@/lib/supabase';
 
 export async function POST(request) {
@@ -14,11 +13,6 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Password minimal 6 karakter' }, { status: 400 });
     }
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    );
-
     const supabaseAdmin = getServiceSupabase();
 
     // Cek username duplikat
@@ -32,8 +26,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Username sudah terpakai' }, { status: 400 });
     }
 
-    // Cek email duplikat — mencegah pembuatan user baru dengan UUID berbeda
-    // (yang akan menyebabkan profile baru dengan saldo 0 dibuat oleh trigger)
+    // Cek email duplikat
     const { data: existingAuthUsers } = await supabaseAdmin.auth.admin.listUsers();
     const emailAlreadyExists = existingAuthUsers?.users?.some(
       (u) => u.email?.toLowerCase() === email.toLowerCase()
@@ -42,18 +35,42 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Email sudah terdaftar' }, { status: 400 });
     }
 
-    const { data, error } = await supabase.auth.signUp({
+    // Gunakan admin.createUser agar user langsung confirmed (tidak perlu verifikasi email)
+    const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
-      options: { data: { username } },
+      email_confirm: true, // langsung confirmed, tidak perlu klik link email
+      user_metadata: { username },
     });
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    // DB trigger `on_auth_user_created` automatically creates the profile row
-    return NextResponse.json({ success: true, user: { id: data.user?.id, email: data.user?.email } });
+    const userId = data.user?.id;
+
+    // Pastikan profile ada — buat manual dengan service role sebagai fallback
+    // (trigger DB bisa saja gagal secara diam-diam)
+    const { data: existingProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (!existingProfile) {
+      // Trigger tidak berjalan, buat profile manual
+      const { error: profileError } = await supabaseAdmin
+        .from('profiles')
+        .insert({ id: userId, username });
+
+      if (profileError) {
+        // Rollback: hapus user auth yang sudah dibuat
+        await supabaseAdmin.auth.admin.deleteUser(userId);
+        return NextResponse.json({ error: 'Gagal membuat profil: ' + profileError.message }, { status: 500 });
+      }
+    }
+
+    return NextResponse.json({ success: true, user: { id: userId, email: data.user?.email } });
   } catch (err) {
     return NextResponse.json({ error: 'Internal server error: ' + err.message }, { status: 500 });
   }
