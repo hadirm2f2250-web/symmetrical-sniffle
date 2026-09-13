@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
 import { getAuthUser } from '@/lib/auth';
 
+const SECRET_SETTING_KEYS = new Set(['smtp_gmail_user', 'smtp_gmail_pass', 'smtp_gmail_accounts']);
+
 // GET /api/admin/settings — return all settings
 export async function GET(request) {
   try {
@@ -18,7 +20,9 @@ export async function GET(request) {
 
     // Convert rows to key-value map
     const map = {};
-    (data || []).forEach(row => { map[row.key] = row.value; });
+    (data || []).forEach(row => {
+      map[row.key] = SECRET_SETTING_KEYS.has(row.key) ? (row.value ? '__SET__' : '') : row.value;
+    });
 
     return NextResponse.json({ success: true, data: map });
   } catch (err) {

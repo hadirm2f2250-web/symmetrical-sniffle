@@ -20,6 +20,8 @@ export async function POST(request) {
     );
 
     const supabaseAdmin = getServiceSupabase();
+
+    // Cek username duplikat
     const { data: existingUser } = await supabaseAdmin
       .from('profiles')
       .select('id')
@@ -28,6 +30,16 @@ export async function POST(request) {
 
     if (existingUser) {
       return NextResponse.json({ error: 'Username sudah terpakai' }, { status: 400 });
+    }
+
+    // Cek email duplikat — mencegah pembuatan user baru dengan UUID berbeda
+    // (yang akan menyebabkan profile baru dengan saldo 0 dibuat oleh trigger)
+    const { data: existingAuthUsers } = await supabaseAdmin.auth.admin.listUsers();
+    const emailAlreadyExists = existingAuthUsers?.users?.some(
+      (u) => u.email?.toLowerCase() === email.toLowerCase()
+    );
+    if (emailAlreadyExists) {
+      return NextResponse.json({ error: 'Email sudah terdaftar' }, { status: 400 });
     }
 
     const { data, error } = await supabase.auth.signUp({

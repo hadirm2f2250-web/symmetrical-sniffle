@@ -72,6 +72,10 @@ export default function AdminDashboardPage() {
   const [ratesInput, setRatesInput] = useState({ usd_to_idr: '', otp_price_markup: '' });
   const [ratesSaving, setRatesSaving] = useState(false);
   const [ratesMsg, setRatesMsg] = useState('');
+  const [smtpInput, setSmtpInput] = useState({ smtp_gmail_user: '', smtp_gmail_pass: '' });
+  const [smtpCount, setSmtpCount] = useState(0);
+  const [smtpSaving, setSmtpSaving] = useState(false);
+  const [smtpMsg, setSmtpMsg] = useState('');
 
   useEffect(() => {
     if (!ready) return;
@@ -84,23 +88,32 @@ export default function AdminDashboardPage() {
     setLoading(true);
     const headers = { Authorization: `Bearer ${token}` };
     try {
-      const [statsRes, balRes, settingsRes, ratesRes] = await Promise.all([
+      const [statsRes, balRes, settingsRes, ratesRes, smtpRes] = await Promise.all([
         fetch('/api/admin/stats', { headers }),
         fetch('/api/admin/balance', { headers }),
         fetch('/api/admin/settings', { headers }),
         fetch('/api/admin/rates', { headers }),
+        fetch('/api/admin/smtp-accounts', { headers }),
       ]);
       const sd  = await statsRes.json();
       const bd  = await balRes.json();
       const stg = await settingsRes.json();
       const rt  = await ratesRes.json();
+      const smtp = await smtpRes.json();
       if (sd.success)  setStats(sd.data);
       if (bd.success)  setProviderBalance(bd.data);
-      if (stg.success) setDepositOpen(stg.data?.deposit_open !== 'false');
+      if (stg.success) {
+        setDepositOpen(stg.data?.deposit_open !== 'false');
+        setSmtpInput({ smtp_gmail_user: '', smtp_gmail_pass: '' });
+        if (stg.data?.smtp_gmail_user === '__SET__' || stg.data?.smtp_gmail_pass === '__SET__') {
+          setSmtpMsg('✅ SMTP Gmail sudah tersimpan. Isi ulang hanya jika ingin mengganti.');
+        }
+      }
       if (rt.success)  {
         setRates(rt.data);
         setRatesInput({ usd_to_idr: String(rt.data.usd_to_idr), otp_price_markup: String(rt.data.otp_price_markup) });
       }
+      if (smtp.success) setSmtpCount(smtp.data?.count || 0);
     } catch {}
     setLoading(false);
   };
@@ -142,6 +155,34 @@ export default function AdminDashboardPage() {
       }
     } catch { setRatesMsg('❌ Kesalahan jaringan'); }
     setRatesSaving(false);
+  };
+
+  const handleSaveSmtp = async () => {
+    if (!session || smtpSaving) return;
+    setSmtpSaving(true); setSmtpMsg('');
+    try {
+      const gmailUser = smtpInput.smtp_gmail_user.trim();
+      const gmailPass = smtpInput.smtp_gmail_pass.trim();
+      if (!gmailUser || !gmailPass) {
+        setSmtpMsg('❌ Gmail User dan App Password wajib diisi.');
+        setSmtpSaving(false);
+        return;
+      }
+      const res = await fetch('/api/admin/smtp-accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ user: gmailUser, pass: gmailPass }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSmtpCount(data.data?.count || 0);
+        setSmtpInput({ smtp_gmail_user: '', smtp_gmail_pass: '' });
+        setSmtpMsg('✅ Akun SMTP Gmail ditambahkan');
+      } else {
+        setSmtpMsg('❌ ' + (data.error || 'Gagal menyimpan SMTP'));
+      }
+    } catch { setSmtpMsg('❌ Kesalahan jaringan'); }
+    setSmtpSaving(false);
   };
 
   if (!ready || !session) {
@@ -363,6 +404,73 @@ export default function AdminDashboardPage() {
               {ratesSaving
                 ? <><span className="spinner" style={{ width: 13, height: 13, borderColor: '#fff', borderTopColor: 'transparent' }} /> Menyimpan...</>
                 : '💾 Simpan Kurs'}
+            </button>
+          </div>
+
+          {/* SMTP Gmail Setting */}
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-title" style={{ marginBottom: 16, fontSize: '0.9rem' }}>📧 SMTP Gmail WA Tools</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-2)', marginBottom: 12 }}>
+              Akun aktif tersimpan: <strong style={{ color: 'var(--accent)', fontFamily: 'var(--mono)' }}>{smtpCount}</strong>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 14 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-3)', marginBottom: 6, fontWeight: 500 }}>
+                  Gmail User
+                </label>
+                <input
+                  type="email"
+                  value={smtpInput.smtp_gmail_user}
+                  onChange={e => setSmtpInput(v => ({ ...v, smtp_gmail_user: e.target.value }))}
+                  placeholder="gmail@gmail.com"
+                  style={{
+                    width: '100%', background: 'var(--bg-2)', border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)', padding: '8px 12px',
+                    color: 'var(--text-1)', fontSize: '0.9rem',
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-3)', marginBottom: 6, fontWeight: 500 }}>
+                  Gmail App Password
+                </label>
+                <input
+                  type="password"
+                  value={smtpInput.smtp_gmail_pass}
+                  onChange={e => setSmtpInput(v => ({ ...v, smtp_gmail_pass: e.target.value }))}
+                  placeholder="xxxx xxxx xxxx xxxx"
+                  style={{
+                    width: '100%', background: 'var(--bg-2)', border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)', padding: '8px 12px',
+                    color: 'var(--text-1)', fontSize: '0.9rem',
+                  }}
+                />
+              </div>
+            </div>
+            <div style={{ fontSize: '0.76rem', color: 'var(--text-3)', marginBottom: 12 }}>
+              Dipakai bergantian untuk kirim appeal Fix Login Tidak Tersedia. Gunakan App Password Gmail, bukan password login akun.
+            </div>
+            {smtpMsg && (
+              <div style={{
+                fontSize: '0.82rem', padding: '8px 12px', borderRadius: 'var(--radius-sm)',
+                background: smtpMsg.startsWith('✅') ? 'rgba(0,200,150,0.1)' : 'rgba(230,57,70,0.1)',
+                color: smtpMsg.startsWith('✅') ? 'var(--green)' : '#e63946',
+                marginBottom: 12,
+              }}>{smtpMsg}</div>
+            )}
+            <button
+              onClick={handleSaveSmtp}
+              disabled={smtpSaving}
+              style={{
+                padding: '9px 20px', borderRadius: 'var(--radius-sm)',
+                background: 'var(--accent)', border: 'none', color: '#fff',
+                fontWeight: 700, fontSize: '0.85rem', cursor: smtpSaving ? 'not-allowed' : 'pointer',
+                opacity: smtpSaving ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: 8,
+              }}
+            >
+              {smtpSaving
+                ? <><span className="spinner" style={{ width: 13, height: 13, borderColor: '#fff', borderTopColor: 'transparent' }} /> Menyimpan...</>
+                : '➕ Tambah SMTP Gmail'}
             </button>
           </div>
 
