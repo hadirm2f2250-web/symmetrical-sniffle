@@ -38,10 +38,20 @@ export async function POST(request) {
     console.log('[orders/create] user.id:', user.id, '| profile:', profile, '| err:', profileErr?.message);
 
     if (!profile) {
+      // Coba insert profile baru — ignoreDuplicates agar tidak overwrite username/balance yang sudah ada
+      const usernameFromMeta = user.user_metadata?.username || user.email?.split('@')[0] || 'user';
+      await supabase
+        .from('profiles')
+        .insert({ id: user.id, username: usernameFromMeta, balance: 0, role: 'user' }, { count: 'exact' })
+        .select('balance, id')
+        .maybeSingle();
+
+      // Re-fetch profile setelah insert (baik insert berhasil maupun sudah ada sebelumnya)
       const { data: newProfile, error: createErr } = await supabase
         .from('profiles')
-        .upsert({ id: user.id, username: user.email?.split('@')[0] || 'user', balance: 0, role: 'user' }, { onConflict: 'id' })
-        .select('balance, id').single();
+        .select('balance, id')
+        .eq('id', user.id)
+        .single();
 
       console.log('[orders/create] auto-create profile:', newProfile, createErr?.message);
       if (!newProfile) {
