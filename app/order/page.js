@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import Sidebar from '@/components/Sidebar';
 import { useProfile } from '@/lib/useProfile';
+import DisclaimerModal from '@/components/DisclaimerModal';
 
 // SweetAlert2 import — 'use client' guarantees browser-only execution, no SSR conflict
 import Swal from 'sweetalert2';
@@ -128,6 +129,7 @@ function DropdownField({ label, placeholder, options, value, onChange, loading, 
 export default function OrderPage() {
   const router = useRouter();
   const { session, profile, ready, refreshProfile } = useProfile();
+  const disclaimerRef = useRef(null);
 
   // Ref to always access the LATEST session token (avoids stale closure in callbacks)
   const sessionRef = useRef(null);
@@ -473,6 +475,7 @@ export default function OrderPage() {
 
   return (
     <>
+      <DisclaimerModal ref={disclaimerRef} />
       <Navbar user={session} profile={profile} />
 
 
@@ -512,6 +515,18 @@ export default function OrderPage() {
                 <div>⚠ Jika muncul error &quot;Gangguan server provider&quot;, artinya <strong>stok habis</strong> — coba operator/negara lain.</div>
               </div>
 
+              {/* Link baca ketentuan */}
+              <div
+                onClick={() => disclaimerRef.current?.open()}
+                style={{
+                  marginBottom: 16, fontSize: '0.78rem', color: 'var(--accent)',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                }}
+                onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'}
+                onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}
+              >
+                📋 Baca ketentuan sebelum membeli
+              </div>
 
               {/* Saldo */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--bg-2)', borderRadius: 'var(--radius-sm)', marginBottom: 20 }}>
