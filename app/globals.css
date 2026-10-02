@@ -575,7 +575,7 @@ tbody tr:hover { background: var(--bg-2); }
   max-height: calc(100vh - 48px);
   display: flex;
   flex-direction: column;
-  background: #fff;
+  background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
@@ -590,7 +590,7 @@ tbody tr:hover { background: var(--bg-2); }
   gap: 12px;
   padding: 18px 20px;
   border-bottom: 1px solid var(--border);
-  background: #fff;
+  background: var(--bg-card);
 }
 
 .disclaimer-header-icon {
@@ -634,12 +634,12 @@ tbody tr:hover { background: var(--bg-2); }
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
-  background: #fff3cd;
-  border: 1px solid #ffc107;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid var(--yellow);
   border-radius: var(--radius-sm);
   font-size: 0.82rem;
   font-weight: 700;
-  color: #664d03;
+  color: var(--text-1);
 }
 
 .disclaimer-warning-icon {
@@ -687,8 +687,8 @@ tbody tr:hover { background: var(--bg-2); }
   align-items: flex-start;
   gap: 8px;
   padding: 12px 14px;
-  background: #d1e7dd;
-  border: 1px solid #a3cfbb;
+  background: var(--accent-glow);
+  border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
 }
 
@@ -700,7 +700,7 @@ tbody tr:hover { background: var(--bg-2); }
 
 .disclaimer-footer-note p {
   font-size: 0.82rem;
-  color: #0a3622;
+  color: var(--text-1);
   font-weight: 600;
   line-height: 1.5;
 }
@@ -730,11 +730,11 @@ tbody tr:hover { background: var(--bg-2); }
 }
 
 .disclaimer-btn:hover {
-  background: #047857;
+  background: var(--accent-dim);
 }
 
 .disclaimer-btn:active {
-  background: #065f46;
+  background: var(--accent);
 }
 
 .disclaimer-btn-icon {
